@@ -1,6 +1,6 @@
-python-telegram-bot==21.7
+python-telegram-bot==20.3
+httpx==0.27.2
 openai==1.3.0
 tiktoken
 aiosqlite
 apscheduler
-httpx
