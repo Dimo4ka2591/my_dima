@@ -14,7 +14,6 @@ import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-# ===== Конфиг =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
@@ -34,7 +33,6 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — БесДим.
 
@@ -73,7 +71,6 @@ RETRY_ATTEMPTS = 3
 enc = tiktoken.get_encoding("cl100k_base")
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
-# ===== База данных =====
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
@@ -139,7 +136,6 @@ async def save_facts(chat_id, facts):
         )
         await db.commit()
 
-# ===== Факты =====
 def extract_facts(text):
     patterns = {
         "имя": r"меня зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
@@ -154,11 +150,9 @@ def extract_facts(text):
             facts[k] = m.group(1).strip()
     return facts
 
-# ===== Токены =====
 def count_tokens(text):
     return len(enc.encode(text))
 
-# ===== Запрос к DeepSeek =====
 async def ask_ai(messages):
     for attempt in range(RETRY_ATTEMPTS):
         try:
@@ -178,7 +172,6 @@ async def ask_ai(messages):
             await asyncio.sleep(2 ** attempt)
     return "DeepSeek в отпуске. Попробуй позже."
 
-# ===== Обработчики =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_text("БесДим включён. И да, я всё ещё недоволен. 😏")
@@ -232,17 +225,14 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_text("Не знаю такой команды. Просто позови: Бес или БесДим. 😏")
 
-# ===== Утреннее приветствие =====
 async def morning(app):
     if GROUP_CHAT_ID:
         msg = random.choice(MORNING_GREETINGS)
         await app.bot.send_message(GROUP_CHAT_ID, msg)
         logging.info("Утреннее приветствие отправлено")
 
-# ===== Запуск =====
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
