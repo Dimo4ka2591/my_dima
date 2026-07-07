@@ -6,17 +6,37 @@ import asyncio
 import time
 import random
 from datetime import datetime
+
+from flask import Flask, request
+
 from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
+
 from openai import OpenAI
 import tiktoken
 import aiosqlite
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+# ===== Flask =====
+flask_app = Flask(__name__)
+
+# ===== Глобальный event loop =====
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+
+# ===== Конфиг =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
+RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 if not BOT_TOKEN:
     raise RuntimeError("Не найден BOT_TOKEN")
@@ -28,11 +48,13 @@ logging.basicConfig(
     level=logging.INFO,
 )
 
+# ===== Клиент DeepSeek =====
 client = OpenAI(
     api_key=DEEPSEEK_API_KEY,
     base_url="https://api.deepseek.com/v1"
 )
 
+# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — БесДим.
 
@@ -50,16 +72,6 @@ MORNING_GREETINGS = [
     "Утро — время, когда вы ещё не совершили глупостей. Но день только начинается.",
     "БесДим приветствует вас. Надеюсь, ваш кофе крепче ваших аргументов.",
     "Доброе утро. Я тут, чтобы напомнить, что вы всё ещё не идеальны.",
-    "Просыпайтесь. БесДим уже проверил вчерашние сообщения. Стыдно должно быть.",
-    "Группа, я желаю вам продуктивного дня. Или хотя бы такого, чтобы вы не успели меня достать.",
-    "Утро — время, когда вы ещё не совершили ошибок. Но у меня есть список ваших прошлых.",
-    "БесДим на связи. Если кто-то ещё спит — он упускает шанс услышать мою колкость.",
-    "Доброе утро! Я уже готов к диалогу. А вы готовы к правде?",
-    "Начинаем день с лёгкой иронии. Не благодарите, БесДим всегда готов поднять настроение.",
-    "Просыпайтесь, ленивцы. БесДим уже обдумывает, как сделать ваш день чуть сложнее.",
-    "Утро — время, когда я ещё не устал от вас. Но это ненадолго.",
-    "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
-    "Доброе утро! Я тут, чтобы напомнить, что вы всё ещё не сделали ничего полезного.",
 ]
 
 DB_PATH = "memory.db"
@@ -71,6 +83,10 @@ RETRY_ATTEMPTS = 3
 enc = tiktoken.get_encoding("cl100k_base")
 scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
+# ===== Telegram Application =====
+telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+# ===== База данных =====
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute("""
@@ -106,20 +122,15 @@ async def save_history(chat_id, role, content):
             "INSERT INTO history(chat_id, role, content, timestamp) VALUES (?,?,?,?)",
             (chat_id, role, content, datetime.now().isoformat())
         )
-        await db.execute("""
-            DELETE FROM history
-            WHERE id NOT IN (
-                SELECT id FROM history
-                WHERE chat_id=?
-                ORDER BY id DESC
-                LIMIT ?
-            )
-        """, (chat_id, MAX_HISTORY))
+        await db.execute(
+            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?)",
+            (chat_id, MAX_HISTORY)
+        )
         await db.commit()
 
 async def load_facts(chat_id):
     async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT facts FROM memory WHERE chat_id = ?", (chat_id,)) as cur:
+        async with db.execute("SELECT facts FROM memory WHERE chat_id=?", (chat_id,)) as cur:
             row = await cur.fetchone()
             if row:
                 try:
@@ -131,11 +142,12 @@ async def load_facts(chat_id):
 async def save_facts(chat_id, facts):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "INSERT OR REPLACE INTO memory (chat_id, facts, updated_at) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO memory (chat_id, facts, updated_at) VALUES (?,?,?)",
             (chat_id, json.dumps(facts, ensure_ascii=False), datetime.now().isoformat())
         )
         await db.commit()
 
+# ===== Факты =====
 def extract_facts(text):
     patterns = {
         "имя": r"меня зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
@@ -153,6 +165,7 @@ def extract_facts(text):
 def count_tokens(text):
     return len(enc.encode(text))
 
+# ===== DeepSeek =====
 async def ask_ai(messages):
     for attempt in range(RETRY_ATTEMPTS):
         try:
@@ -172,6 +185,7 @@ async def ask_ai(messages):
             await asyncio.sleep(2 ** attempt)
     return "DeepSeek в отпуске. Попробуй позже."
 
+# ===== Обработчики =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_text("БесДим включён. И да, я всё ещё недоволен. 😏")
@@ -225,26 +239,59 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_text("Не знаю такой команды. Просто позови: Бес или БесДим. 😏")
 
-async def morning(app):
+async def morning(app_bot):
     if GROUP_CHAT_ID:
         msg = random.choice(MORNING_GREETINGS)
-        await app.bot.send_message(GROUP_CHAT_ID, msg)
+        await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
         logging.info("Утреннее приветствие отправлено")
 
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    app.add_handler(MessageHandler(filters.COMMAND, unknown))
+# ===== Настройка бота =====
+async def setup_bot():
+    await init_db()
+    await telegram_app.initialize()
+    await telegram_app.start()
 
-    async def post_init(app):
-        await init_db()
-        scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[app])
-        scheduler.start()
-        logging.info("БесДим запущен. Память — SQLite + краткосрочная.")
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    app.post_init = post_init
-    app.run_polling()
+    scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
+    scheduler.start()
 
+    if RENDER_URL:
+        await telegram_app.bot.delete_webhook()
+        webhook_url = f"{RENDER_URL}/webhook/{BOT_TOKEN}"
+        await telegram_app.bot.set_webhook(webhook_url)
+        logging.info("Webhook установлен: %s", webhook_url)
+
+# ===== Flask маршруты =====
+@flask_app.route("/")
+def home():
+    return "БесДим работает 😏"
+
+@flask_app.route("/webhook/<token>", methods=["POST"])
+def webhook(token):
+    if token != BOT_TOKEN:
+        return "Forbidden", 403
+
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+
+    # Запускаем обработку в глобальном event loop
+    asyncio.run_coroutine_threadsafe(
+        telegram_app.process_update(update),
+        loop
+    )
+
+    return "OK"
+
+# ===== Инициализация при старте =====
+@flask_app.before_request
+def before_request():
+    if not getattr(flask_app, "initialized", False):
+        flask_app.initialized = True
+        loop.run_until_complete(setup_bot())
+
+# ===== Запуск (для локального теста) =====
 if __name__ == "__main__":
-    main()
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
