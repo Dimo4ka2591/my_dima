@@ -277,10 +277,7 @@ def webhook(token):
     update = Update.de_json(request.get_json(force=True), telegram_app.bot)
 
     # Запускаем обработку в глобальном event loop
-    asyncio.run_coroutine_threadsafe(
-        telegram_app.process_update(update),
-        loop
-    )
+    loop.run_until_complete(telegram_app.process_update(update))
 
     return "OK"
 
