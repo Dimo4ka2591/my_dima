@@ -181,9 +181,11 @@ async def ask_ai(messages):
             logging.info("DeepSeek ответил за %.2f сек", time.time() - start_time)
             return resp.choices[0].message.content or "…"
         except Exception as e:
-            logging.warning("Попытка %d из %d: %s", attempt + 1, RETRY_ATTEMPTS, e)
+            logging.error("Ошибка DeepSeek (попытка %d): %s", attempt + 1, str(e))
+            if attempt == RETRY_ATTEMPTS - 1:
+                return f"DeepSeek сказал: {str(e)}"
             await asyncio.sleep(2 ** attempt)
-    return "DeepSeek в отпуске. Попробуй позже."
+    return "DeepSeek упал окончательно."
 
 # ===== Обработчики =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -197,10 +199,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     text = update.message.text.strip()
 
+    # Проверяем обращение
     if not re.search(r'\b(бесдим|бес)\b', text, re.I):
         return
 
-    clean = re.sub(r'(?i)^(бесдим|бес)[\s,:;!?-]*', '', text).strip()
+    # Удаляем обращение из начала строки
+    clean = re.sub(r'(?i)^(бесдим|бес)\s*[:;,.]?\s*', '', text).strip()
+
     if not clean:
         await update.message.reply_text("Гениально. Позвал и передумал. 😏")
         return
@@ -275,10 +280,7 @@ def webhook(token):
         return "Forbidden", 403
 
     update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-
-    # Запускаем обработку в глобальном event loop
     loop.run_until_complete(telegram_app.process_update(update))
-
     return "OK"
 
 # ===== Инициализация при старте =====
