@@ -66,12 +66,20 @@ SYSTEM_PROMPT = """
 Отвечаешь только когда тебя позвали по имени — БесДим или Бес.
 """
 
+# ===== Ключевые слова и реакции =====
+KEYWORD_REACTIONS = {
+    r'\bскука\b': 'Бухаем!!! 🔥🔥🔥',
+    r'\bпиво\b': 'Пиво — это жизнь. Остальное — просто обстоятельства. 🍺',
+}
+
 MORNING_GREETINGS = [
     "Доброе утро, группа. БесДим уже устал от вашего отсутствия. 😏",
     "Начинаем день. Кто не готов к сарказму — выключайте телефон.",
     "Утро — время, когда вы ещё не совершили глупостей. Но день только начинается.",
     "БесДим приветствует вас. Надеюсь, ваш кофе крепче ваших аргументов.",
     "Доброе утро. Я тут, чтобы напомнить, что вы всё ещё не идеальны.",
+    "Просыпайтесь, ленивцы. БесДим уже обдумывает, как сделать ваш день чуть сложнее.",
+    "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
 ]
 
 DB_PATH = "memory.db"
@@ -202,17 +210,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat_id
-    text = update.message.text.strip()
+    text = update.message.text.strip().lower()
 
-    # Проверяем, есть ли обращение
-    if re.search(r'\b(бесдим|бес)\b', text, re.I):
-        # Если есть — активируем диалог
+    # ===== Реакция на ключевые слова (без привязки к диалогу) =====
+    for pattern, reaction in KEYWORD_REACTIONS.items():
+        if re.search(pattern, text, re.I):
+            await update.message.reply_text(reaction)
+            return
+
+    # ===== Обработка основного диалога =====
+    has_mention = bool(re.search(r'\b(бесдим|бес)\b', text, re.I))
+
+    if has_mention:
         active_dialogs[chat_id] = time.time()
         clean = re.sub(r'(?i)^(бесдим|бес)\s*[:;,.]?\s*', '', text).strip()
     else:
-        # Если нет — проверяем, активен ли диалог
         if chat_id not in active_dialogs or time.time() - active_dialogs[chat_id] > 600:
-            return  # игнорируем сообщение
+            return
         clean = text.strip()
 
     if not clean:
