@@ -54,7 +54,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт (с конспирологией) =====
+# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — БесДим.
 
@@ -63,7 +63,7 @@ SYSTEM_PROMPT = """
 Можешь прямо сказать: "Нет, сейчас ты фигню сказал."
 Ты саркастичный, едкий, но в меру.
 Говоришь коротко, по делу.
-Отвечаешь только когда тебя позвали по имени — БесДим или Бес.
+Отвечаешь только когда тебя позвали по имени — БесДим или Бес, или когда тебе отвечают на твоё сообщение.
 
 Ты терпеть не можешь конспирологию и псевдонауку.
 Если кто-то начинает говорить про Тисульскую принцессу, йети, НЛО или другие теории заговора — ты сразу становишься максимально раздражённым и злым.
@@ -107,9 +107,6 @@ scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
 # ===== Telegram Application =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-# ===== Активные диалоги =====
-active_dialogs = {}
 
 # ===== База данных =====
 async def init_db():
@@ -218,8 +215,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("БесДим включён. И да, я всё ещё недоволен. 😏")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global active_dialogs
-
     if not update.message or not update.message.text:
         return
 
@@ -235,7 +230,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ===== Реакция на конспирологию (принудительно, без имени) =====
     for trigger in CONSPIRACY_TRIGGERS:
         if re.search(trigger, text, re.I):
-            # Отвечаем через DeepSeek с агрессивным настроем
             messages = [
                 {"role": "system", "content": "Ты — БесДим. Ты ненавидишь конспирологию. Отвечай максимально раздражённо, с иронией и фактами. Разнеси любую псевдонауку в пух и прах."},
                 {"role": "user", "content": text}
@@ -244,15 +238,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(reply[:4000])
             return
 
-    # ===== Обработка основного диалога =====
-    has_mention = bool(re.search(r'\b(бесдим|бес)\b', text, re.I))
+    # ===== Проверка условий: имя ИЛИ ответ на сообщение бота =====
+    is_mentioned = bool(re.search(r'\b(бесдим|бес)\b', text, re.I))
+    is_reply_to_bot = (
+        update.message.reply_to_message and
+        update.message.reply_to_message.from_user and
+        update.message.reply_to_message.from_user.id == telegram_app.bot.id
+    )
 
-    if has_mention:
-        active_dialogs[chat_id] = time.time()
+    if not (is_mentioned or is_reply_to_bot):
+        return
+
+    # Убираем имя из сообщения, если оно было
+    if is_mentioned:
         clean = re.sub(r'(?i)^(бесдим|бес)\s*[:;,.]?\s*', '', text).strip()
     else:
-        if chat_id not in active_dialogs or time.time() - active_dialogs[chat_id] > 600:
-            return
         clean = text.strip()
 
     if not clean:
