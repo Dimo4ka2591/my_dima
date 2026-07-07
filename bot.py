@@ -86,6 +86,9 @@ scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 # ===== Telegram Application =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+# ===== Активные диалоги =====
+active_dialogs = {}
+
 # ===== База данных =====
 async def init_db():
     async with aiosqlite.connect(DB_PATH) as db:
@@ -193,18 +196,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("БесДим включён. И да, я всё ещё недоволен. 😏")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global active_dialogs
+
     if not update.message or not update.message.text:
         return
 
     chat_id = update.message.chat_id
     text = update.message.text.strip()
 
-    # Проверяем обращение
-    if not re.search(r'\b(бесдим|бес)\b', text, re.I):
-        return
-
-    # Удаляем обращение из начала строки
-    clean = re.sub(r'(?i)^(бесдим|бес)\s*[:;,.]?\s*', '', text).strip()
+    # Проверяем, есть ли обращение
+    if re.search(r'\b(бесдим|бес)\b', text, re.I):
+        # Если есть — активируем диалог
+        active_dialogs[chat_id] = time.time()
+        clean = re.sub(r'(?i)^(бесдим|бес)\s*[:;,.]?\s*', '', text).strip()
+    else:
+        # Если нет — проверяем, активен ли диалог
+        if chat_id not in active_dialogs or time.time() - active_dialogs[chat_id] > 600:
+            return  # игнорируем сообщение
+        clean = text.strip()
 
     if not clean:
         await update.message.reply_text("Гениально. Позвал и передумал. 😏")
