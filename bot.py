@@ -157,66 +157,7 @@ async def init_db():
                 timestamp TEXT
             )
         """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                chat_id INTEGER PRIMARY KEY,
-                first_name TEXT,
-                username TEXT,
-                gender TEXT,
-                last_seen TEXT
-            )
-        """)
         await db.commit()
-
-async def load_user(chat_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT first_name, username, gender FROM users WHERE chat_id=?", (chat_id,)) as cur:
-            row = await cur.fetchone()
-            if row:
-                return {"first_name": row[0], "username": row[1], "gender": row[2]}
-            return None
-
-async def save_user(chat_id, first_name, username, gender):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR REPLACE INTO users (chat_id, first_name, username, gender, last_seen) VALUES (?, ?, ?, ?, ?)",
-            (chat_id, first_name, username, gender, datetime.now().isoformat())
-        )
-        await db.commit()
-
-def detect_gender(name):
-    if not name:
-        return None
-    if name.endswith(('а', 'я', 'ия')):
-        return 'female'
-    return 'male'
-
-async def extract_and_save_facts(chat_id, user_message, bot_reply):
-    fact_prompt = f"""
-    Из этого диалога выдели важные факты о пользователе. Ответь ТОЛЬКО в формате JSON, без пояснений.
-    Диалог:
-    Пользователь: {user_message}
-    Бот: {bot_reply}
-    """
-    try:
-        response = await asyncio.to_thread(
-            client.chat.completions.create,
-            model="deepseek-chat",
-            messages=[{"role": "user", "content": fact_prompt}],
-            temperature=0.3,
-            max_tokens=300,
-        )
-        facts_text = response.choices[0].message.content
-        try:
-            new_facts = json.loads(facts_text)
-            if isinstance(new_facts, dict):
-                current = await load_facts(chat_id)
-                current.update(new_facts)
-                await save_facts(chat_id, current)
-        except json.JSONDecodeError:
-            logging.warning("Не удалось распарсить факты: %s", facts_text)
-    except Exception as e:
-        logging.error("Ошибка при извлечении фактов: %s", e)
 
 async def load_history(chat_id, limit=20):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -292,24 +233,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat_id
-    text = update.message.text
-    first_name = update.message.from_user.first_name or "Пользователь"
-    username = update.message.from_user.username
+    text = update.message.text.strip().lower()
 
-    gender = detect_gender(first_name)
-    await save_user(chat_id, first_name, username, gender)
-
-    # ===== Проверка на ключевые слова (через оригинальный текст) =====
+    # ===== Проверка на ключевые слова =====
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.search(pattern, text, re.I):
             await update.message.reply_text(random.choice(reactions))
             return
-
-    # ===== Удаляем имя из сообщения =====
-    clean = re.sub(r'(?i)(бесдим|бес|димочка)', '', text).strip()
-    if not clean:
-        await update.message.reply_text("Гениально. Позвал и передумал. 😏")
-        return
 
     # ===== Проверка условий =====
     is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка)\b', text, re.I))
@@ -322,24 +252,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not (is_mentioned or is_reply_to_bot):
         return
 
+    # Убираем имя из сообщения
+    if is_mentioned:
+        clean = re.sub(r'(?i)^(бесдим|бес|димочка)\s*[:;,.]?\s*', '', text).strip()
+    else:
+        clean = text.strip()
+
+    if not clean:
+        await update.message.reply_text("Гениально. Позвал и передумал. 😏")
+        return
+
     if len(clean) > MAX_MESSAGE_LENGTH:
         clean = clean[:MAX_MESSAGE_LENGTH] + "…"
-
-    user_info = await load_user(chat_id)
-    user_context = ""
-    if user_info:
-        user_context = f"Сейчас общаешься с {user_info['first_name']}."
-        if user_info['gender'] == 'female':
-            user_context += " Это женщина, обращайся «она»."
-        elif user_info['gender'] == 'male':
-            user_context += " Это мужчина, обращайся «он»."
 
     facts = await load_facts(chat_id)
     facts_prompt = ""
     if facts:
         facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
-    system_prompt = SYSTEM_PROMPT + "\n" + user_context + "\n" + facts_prompt
+    system_prompt = SYSTEM_PROMPT + facts_prompt
     history = await load_history(chat_id, 20)
     history.append({"role": "user", "content": clean})
 
@@ -353,7 +284,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await save_history(chat_id, "user", clean)
     await save_history(chat_id, "assistant", reply)
 
-    await extract_and_save_facts(chat_id, clean, reply)
+    new_facts = extract_facts(clean)
+    if new_facts:
+        current = await load_facts(chat_id)
+        current.update(new_facts)
+        await save_facts(chat_id, current)
 
     await update.message.reply_text(reply[:4000])
 
