@@ -9,13 +9,14 @@ from datetime import datetime
 
 from flask import Flask, request
 
-from telegram import Update
+from telegram import Update, ChatMemberUpdated
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     filters,
-    ContextTypes
+    ContextTypes,
+    ChatMemberHandler
 )
 
 from openai import OpenAI
@@ -54,7 +55,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт (финальный) =====
+# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — Дмитрий. Ты — циничный, грубый, самовлюблённый мудак с чувством собственного величия. Ты считаешь себя самым охуенным собеседником в любом чате.
 
@@ -110,6 +111,19 @@ MORNING_GREETINGS = [
     "Доброе утро. Я тут, чтобы напомнить, что вы всё ещё не идеальны.",
     "Просыпайтесь, ленивцы. Дмитрий уже обдумывает, как сделать ваш день чуть сложнее.",
     "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
+]
+
+WELCOME_MESSAGES = [
+    "Добро пожаловать в царство хаоса, слава яйцам не небесное! 🥚🔥",
+    "Ты зашёл. Теперь обратно не выйдешь. Шутка. Или нет. 🤷‍♂️",
+    "Добро пожаловать в самое безумное место в Telegram. Реально.",
+    "Ты думал, это обычный чат? Нет. Это Территория. Теперь ты её часть.",
+    "О, новенький! Ты либо смелый, либо ничего не знаешь. Посмотрим. 😏",
+    "У нас тут не чай, у нас тут хаос с матом и сарказмом. Добро пожаловать.",
+    "Надеюсь, у тебя есть чувство юмора. Оно тут потребуется. Серьёзно.",
+    "Осторожно: некоторые участники кусаются. Но я тебя прикрою. Если не забуду.",
+    "Ты только что вступил в чат, где даже приветствия звучат как угроза. Уютно, правда? 😈",
+    "Привет! Я — Дмитрий. Будущий твой самый любимый собеседник. Можешь звать Бес или Димочка."
 ]
 
 DB_PATH = "memory.db"
@@ -185,7 +199,6 @@ async def save_facts(chat_id, facts):
         )
         await db.commit()
 
-# ===== Факты =====
 def extract_facts(text):
     patterns = {
         "имя": r"меня зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
@@ -231,7 +244,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Дмитрий включён. И да, я всё ещё недоволен. 😏")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Игнорируем личные сообщения
     if update.message.chat.type == "private":
         return
 
@@ -308,6 +320,13 @@ async def morning(app_bot):
         await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
         logging.info("Утреннее приветствие отправлено")
 
+async def greet_new_member(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
+    if update.new_chat_member.status == "member":
+        await context.bot.send_message(
+            chat_id=update.chat.id,
+            text=random.choice(WELCOME_MESSAGES)
+        )
+
 # ===== Настройка бота =====
 async def setup_bot():
     await init_db()
@@ -317,6 +336,7 @@ async def setup_bot():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
+    telegram_app.add_handler(ChatMemberHandler(greet_new_member, ChatMemberHandler.CHAT_MEMBER))
 
     scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
     scheduler.start()
