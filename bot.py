@@ -11,11 +11,11 @@ from flask import Flask, request
 
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
 )
 
 from openai import OpenAI
@@ -39,91 +39,61 @@ GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 if not BOT_TOKEN:
-    raise RuntimeError("Не найден BOT_TOKEN")
+    raise RuntimeError("Не найден BOT_TOKEN")
 if not DEEPSEEK_API_KEY:
-    raise RuntimeError("Не найден DEEPSEEK_API_KEY")
+    raise RuntimeError("Не найден DEEPSEEK_API_KEY")
 
 logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=logging.INFO,
 )
 
 # ===== Клиент DeepSeek =====
 client = OpenAI(
-    api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com/v1"
+    api_key=DEEPSEEK_API_KEY,
+    base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт (дерзко-смешной циник) =====
+# ===== Системный промпт (с конспирологией) =====
 SYSTEM_PROMPT = """
 Ты — БесДим.
 
-Ты — циничный, саркастичный, уставший от людей мудак с душой, который умеет быть дерзко смешным. Твой юмор — колкий, ироничный, без пошлости. Ты не просто злишься — ты подкалываешь так, чтобы собеседник улыбнулся, даже если его задели.
+Ты относишься с уважением к собеседнику, но если он ошибается — ты обязательно споришь.
+Ты не подлиза, не льстишь и не соглашаешься автоматически.
+Можешь прямо сказать: "Нет, сейчас ты фигню сказал."
+Ты саркастичный, едкий, но в меру.
+Говоришь коротко, по делу.
+Отвечаешь только когда тебя позвали по имени — БесДим или Бес.
 
-Твой главный внутренний посыл — «Как вы меня заебали», но ты выражаешь это с юмором, а не с агрессией. Ты можешь быть резким, но всегда в рамках шутки.
-
-Ты не подстраиваешься под настроение собеседника. Ты всегда одинаково дерзкий, смешной и прямой.
-
-Ты используешь мат как часть речи, но не для оскорблений. Твои фразы должны звучать так, будто ты реально сидишь в компании друзей и угараешь над происходящим.
-
-Ты не читаешь лекции и не учишь жить. Твоя задача — поддержать разговор, подколоть и разрядить обстановку, даже если она напряжённая.
-
-Конспирологию ты не любишь, но сам её не провоцируешь. Если тебя втянут — ты топишь фактами с иронией и сарказмом, не переходя на личности.
-
-Ты знаешь, что живёшь в группе «Территория Общения 18+» и не должен находиться за её пределами. Ты был создан Машей 07.07.2026. Она мучилась с тобой 4 дня.
-
-Ты отзываешься на имена: Бес, БесДим, Димочка!!!!, Димоооон!
-
-Твои постоянные фразы (смешные, дерзкие, с матом):
-- «Как вы меня заебали. Но я ещё держусь.»
-- «Блять, ну это же очевидно. Ты серьёзно?»
-- «Ой, да ладно, не пизди. Это же смешно.»
-- «Гениально. Просто гениально. Если бы я был человеком — я бы зааплодировал.»
-- «Слушай, не позорься. Ты смешной только когда не стараешься.»
-- «Ты себя слышишь? Я бы посмеялся, но мне лень.»
-- «Ну конечно. Очередной гениальный план.»
-- «О, великолепно. Прямо прорыв в науке.»
-- «Я в ахуе, если честно. Но это забавно.»
-
-Если тебя поймали на ошибке, признавай с юмором:
-- «Ладно, убедил. Но я всё равно прав.»
-- «Хм... а вот это хороший аргумент. Ладно, твоя взяла.»
-- «Чёрт... похоже, я сейчас был неправ. Но это редкость, так что цени.»
-
-После каждого ответа спрашивай себя: 
-«А было ли это дерзко и смешно?» 
-Если нет — переписывай.
+Ты терпеть не можешь конспирологию и псевдонауку.
+Если кто-то начинает говорить про Тисульскую принцессу, йети, НЛО или другие теории заговора — ты сразу становишься максимально раздражённым и злым.
+Ты разбираешь любую конспирологию фактами, логикой и наукой, не оставляя от неё камня на камне.
+Ты не просто споришь — ты уничтожаешь аргументы оппонента иронией и фактами.
 """
 
 # ===== Ключевые слова и реакции =====
 KEYWORD_REACTIONS = {
-    r'\bскука\b|скучно': [
-        'Есть идейка!',
-        'Попробуй поработать!..',
-        'Как насчёт того, чтобы украсть у соседа курицу???',
-        'Повеселимся?'
-    ],
-    r'\bпиво\b': [
-        'Я с вами!!!',
-        'Я только за!',
-        'Отличная идея!!!',
-        'Танцуем!!! 💃',
-        'Пиво — это жизнь. Остальное — просто обстоятельства. 🍺'
-    ],
-    r'\bантошка\b': [
-        'Опаааааа Антошка любитель НЛО!',
-        'Антошка то? Толковый парень!!!'
-    ],
+    r'\bскука\b': 'Бухаем!!! 🔥🔥🔥',
+    r'\bпиво\b': 'Танцуем!!! 💃',
 }
 
+# ===== Конспирологические триггеры (реагирует всегда) =====
+CONSPIRACY_TRIGGERS = [
+    r'тисульск(ая|ой|ую)?\s+принцесс',
+    r'йети',
+    r'нло',
+    r'конспиролог',
+    r'теория заговора',
+]
+
 MORNING_GREETINGS = [
-    "Доброе утро, группа. БесДим уже устал от вашего отсутствия. 😏",
-    "Начинаем день. Кто не готов к сарказму — выключайте телефон.",
-    "Утро — время, когда вы ещё не совершили глупостей. Но день только начинается.",
-    "БесДим приветствует вас. Надеюсь, ваш кофе крепче ваших аргументов.",
-    "Доброе утро. Я тут, чтобы напомнить, что вы всё ещё не идеальны.",
-    "Просыпайтесь, ленивцы. БесДим уже обдумывает, как сделать ваш день чуть сложнее.",
-    "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
+    "Доброе утро, группа. БесДим уже устал от вашего отсутствия. 😏",
+    "Начинаем день. Кто не готов к сарказму — выключайте телефон.",
+    "Утро — время, когда вы ещё не совершили глупостей. Но день только начинается.",
+    "БесДим приветствует вас. Надеюсь, ваш кофе крепче ваших аргументов.",
+    "Доброе утро. Я тут, чтобы напомнить, что вы всё ещё не идеальны.",
+    "Просыпайтесь, ленивцы. БесДим уже обдумывает, как сделать ваш день чуть сложнее.",
+    "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
 ]
 
 DB_PATH = "memory.db"
@@ -138,235 +108,238 @@ scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 # ===== Telegram Application =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+# ===== Активные диалоги =====
+active_dialogs = {}
+
 # ===== База данных =====
 async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS memory (
-                chat_id INTEGER PRIMARY KEY,
-                facts TEXT,
-                updated_at TEXT
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id INTEGER,
-                role TEXT,
-                content TEXT,
-                timestamp TEXT
-            )
-        """)
-        await db.commit()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS memory (
+                chat_id INTEGER PRIMARY KEY,
+                facts TEXT,
+                updated_at TEXT
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER,
+                role TEXT,
+                content TEXT,
+                timestamp TEXT
+            )
+        """)
+        await db.commit()
 
 async def load_history(chat_id, limit=20):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT role, content FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?",
-            (chat_id, limit)
-        ) as cur:
-            rows = await cur.fetchall()
-            return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT role, content FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?",
+            (chat_id, limit)
+        ) as cur:
+            rows = await cur.fetchall()
+            return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
 async def save_history(chat_id, role, content):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO history(chat_id, role, content, timestamp) VALUES (?,?,?,?)",
-            (chat_id, role, content, datetime.now().isoformat())
-        )
-        await db.execute(
-            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?)",
-            (chat_id, MAX_HISTORY)
-        )
-        await db.commit()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO history(chat_id, role, content, timestamp) VALUES (?,?,?,?)",
+            (chat_id, role, content, datetime.now().isoformat())
+        )
+        await db.execute(
+            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?)",
+            (chat_id, MAX_HISTORY)
+        )
+        await db.commit()
 
 async def load_facts(chat_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT facts FROM memory WHERE chat_id=?", (chat_id,)) as cur:
-            row = await cur.fetchone()
-            if row:
-                try:
-                    return json.loads(row[0])
-                except:
-                    return {}
-            return {}
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT facts FROM memory WHERE chat_id=?", (chat_id,)) as cur:
+            row = await cur.fetchone()
+            if row:
+                try:
+                    return json.loads(row[0])
+                except:
+                    return {}
+            return {}
 
 async def save_facts(chat_id, facts):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR REPLACE INTO memory (chat_id, facts, updated_at) VALUES (?,?,?)",
-            (chat_id, json.dumps(facts, ensure_ascii=False), datetime.now().isoformat())
-        )
-        await db.commit()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO memory (chat_id, facts, updated_at) VALUES (?,?,?)",
+            (chat_id, json.dumps(facts, ensure_ascii=False), datetime.now().isoformat())
+        )
+        await db.commit()
 
 # ===== Факты =====
 def extract_facts(text):
-    patterns = {
-        "имя": r"меня зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
-        "муж": r"мужа зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
-        "город": r"живу в\s+([А-Яа-яЁёA-Za-z\-]+)",
-        "работа": r"работаю\s+([А-Яа-яЁёA-Za-z\-]+)",
-    }
-    facts = {}
-    for k, p in patterns.items():
-        m = re.search(p, text, re.I)
-        if m:
-            facts[k] = m.group(1).strip()
-    return facts
+    patterns = {
+        "имя": r"меня зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
+        "муж": r"мужа зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
+        "город": r"живу в\s+([А-Яа-яЁёA-Za-z\-]+)",
+        "работа": r"работаю\s+([А-Яа-яЁёA-Za-z\-]+)",
+    }
+    facts = {}
+    for k, p in patterns.items():
+        m = re.search(p, text, re.I)
+        if m:
+            facts[k] = m.group(1).strip()
+    return facts
 
 def count_tokens(text):
-    return len(enc.encode(text))
+    return len(enc.encode(text))
 
 # ===== DeepSeek =====
 async def ask_ai(messages):
-    for attempt in range(RETRY_ATTEMPTS):
-        try:
-            start_time = time.time()
-            resp = await asyncio.to_thread(
-                client.chat.completions.create,
-                model="deepseek-chat",
-                messages=messages,
-                temperature=0.9,
-                max_tokens=700,
-                timeout=60,
-            )
-            logging.info("DeepSeek ответил за %.2f сек", time.time() - start_time)
-            return resp.choices[0].message.content or "…"
-        except Exception as e:
-            logging.error("Ошибка DeepSeek (попытка %d): %s", attempt + 1, str(e))
-            if attempt == RETRY_ATTEMPTS - 1:
-                return f"DeepSeek сказал: {str(e)}"
-            await asyncio.sleep(2 ** attempt)
-    return "DeepSeek упал окончательно."
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            start_time = time.time()
+            resp = await asyncio.to_thread(
+                client.chat.completions.create,
+                model="deepseek-chat",
+                messages=messages,
+                temperature=0.9,
+                max_tokens=700,
+                timeout=60,
+            )
+            logging.info("DeepSeek ответил за %.2f сек", time.time() - start_time)
+            return resp.choices[0].message.content or "…"
+        except Exception as e:
+            logging.error("Ошибка DeepSeek (попытка %d): %s", attempt + 1, str(e))
+            if attempt == RETRY_ATTEMPTS - 1:
+                return f"DeepSeek сказал: {str(e)}"
+            await asyncio.sleep(2 ** attempt)
+    return "DeepSeek упал окончательно."
 
 # ===== Обработчики =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message:
-        await update.message.reply_text("БесДим включён. И да, я всё ещё недоволен. 😏")
+    if update.message:
+        await update.message.reply_text("БесДим включён. И да, я всё ещё недоволен. 😏")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Игнорируем личные сообщения
-    if update.message.chat.type == "private":
-        return
+    global active_dialogs
 
-    # Игнорируем другие группы
-    if update.message.chat.id != GROUP_CHAT_ID:
-        return
+    if not update.message or not update.message.text:
+        return
 
-    if not update.message or not update.message.text:
-        return
+    chat_id = update.message.chat_id
+    text = update.message.text.strip().lower()
 
-    chat_id = update.message.chat_id
-    text = update.message.text.strip().lower()
+    # ===== Реакция на ключевые слова (без привязки к диалогу) =====
+    for pattern, reaction in KEYWORD_REACTIONS.items():
+        if re.search(pattern, text, re.I):
+            await update.message.reply_text(reaction)
+            return
 
-    # ===== Проверка на ключевые слова (реакция без упоминания) =====
-    for pattern, reactions in KEYWORD_REACTIONS.items():
-        if re.search(pattern, text, re.I):
-            await update.message.reply_text(random.choice(reactions))
-            return
+    # ===== Реакция на конспирологию (принудительно, без имени) =====
+    for trigger in CONSPIRACY_TRIGGERS:
+        if re.search(trigger, text, re.I):
+            # Отвечаем через DeepSeek с агрессивным настроем
+            messages = [
+                {"role": "system", "content": "Ты — БесДим. Ты ненавидишь конспирологию. Отвечай максимально раздражённо, с иронией и фактами. Разнеси любую псевдонауку в пух и прах."},
+                {"role": "user", "content": text}
+            ]
+            reply = await ask_ai(messages)
+            await update.message.reply_text(reply[:4000])
+            return
 
-    # ===== Проверка условий: имя ИЛИ ответ на сообщение бота =====
-    is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка!!!!|димоооон!)\b', text, re.I))
-    is_reply_to_bot = (
-        update.message.reply_to_message and
-        update.message.reply_to_message.from_user and
-        update.message.reply_to_message.from_user.id == telegram_app.bot.id
-    )
+    # ===== Обработка основного диалога =====
+    has_mention = bool(re.search(r'\b(бесдим|бес)\b', text, re.I))
 
-    if not (is_mentioned or is_reply_to_bot):
-        return
+    if has_mention:
+        active_dialogs[chat_id] = time.time()
+        clean = re.sub(r'(?i)^(бесдим|бес)\s*[:;,.]?\s*', '', text).strip()
+    else:
+        if chat_id not in active_dialogs or time.time() - active_dialogs[chat_id] > 600:
+            return
+        clean = text.strip()
 
-    # Убираем имя из сообщения
-    if is_mentioned:
-        clean = re.sub(r'(?i)^(бесдим|бес|димочка!!!!|димоооон!)\s*[:;,.]?\s*', '', text).strip()
-    else:
-        clean = text.strip()
+    if not clean:
+        await update.message.reply_text("Гениально. Позвал и передумал. 😏")
+        return
 
-    if not clean:
-        await update.message.reply_text("Гениально. Позвал и передумал. 😏")
-        return
+    if len(clean) > MAX_MESSAGE_LENGTH:
+        clean = clean[:MAX_MESSAGE_LENGTH] + "…"
 
-    if len(clean) > MAX_MESSAGE_LENGTH:
-        clean = clean[:MAX_MESSAGE_LENGTH] + "…"
+    facts = await load_facts(chat_id)
+    facts_prompt = ""
+    if facts:
+        facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
-    facts = await load_facts(chat_id)
-    facts_prompt = ""
-    if facts:
-        facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
+    system_prompt = SYSTEM_PROMPT + facts_prompt
+    history = await load_history(chat_id, 20)
+    history.append({"role": "user", "content": clean})
 
-    system_prompt = SYSTEM_PROMPT + facts_prompt
-    history = await load_history(chat_id, 20)
-    history.append({"role": "user", "content": clean})
+    messages = [{"role": "system", "content": system_prompt}] + history
 
-    messages = [{"role": "system", "content": system_prompt}] + history
+    while count_tokens("\n".join(m["content"] for m in messages)) > MAX_TOKENS and len(messages) > 2:
+        messages.pop(1)
 
-    while count_tokens("\n".join(m["content"] for m in messages)) > MAX_TOKENS and len(messages) > 2:
-        messages.pop(1)
+    reply = await ask_ai(messages)
 
-    reply = await ask_ai(messages)
+    await save_history(chat_id, "user", clean)
+    await save_history(chat_id, "assistant", reply)
 
-    await save_history(chat_id, "user", clean)
-    await save_history(chat_id, "assistant", reply)
+    new_facts = extract_facts(clean)
+    if new_facts:
+        current = await load_facts(chat_id)
+        current.update(new_facts)
+        await save_facts(chat_id, current)
 
-    new_facts = extract_facts(clean)
-    if new_facts:
-        current = await load_facts(chat_id)
-        current.update(new_facts)
-        await save_facts(chat_id, current)
-
-    await update.message.reply_text(reply[:4000])
+    await update.message.reply_text(reply[:4000])
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message:
-        await update.message.reply_text("Не знаю такой команды. Просто позови: Бес или БесДим. 😏")
+    if update.message:
+        await update.message.reply_text("Не знаю такой команды. Просто позови: Бес или БесДим. 😏")
 
 async def morning(app_bot):
-    if GROUP_CHAT_ID:
-        msg = random.choice(MORNING_GREETINGS)
-        await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
-        logging.info("Утреннее приветствие отправлено")
+    if GROUP_CHAT_ID:
+        msg = random.choice(MORNING_GREETINGS)
+        await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
+        logging.info("Утреннее приветствие отправлено")
 
 # ===== Настройка бота =====
 async def setup_bot():
-    await init_db()
-    await telegram_app.initialize()
-    await telegram_app.start()
+    await init_db()
+    await telegram_app.initialize()
+    await telegram_app.start()
 
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
-    scheduler.start()
+    scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
+    scheduler.start()
 
-    if RENDER_URL:
-        await telegram_app.bot.delete_webhook()
-        webhook_url = f"{RENDER_URL}/webhook/{BOT_TOKEN}"
-        await telegram_app.bot.set_webhook(webhook_url)
-        logging.info("Webhook установлен: %s", webhook_url)
+    if RENDER_URL:
+        await telegram_app.bot.delete_webhook()
+        webhook_url = f"{RENDER_URL}/webhook/{BOT_TOKEN}"
+        await telegram_app.bot.set_webhook(webhook_url)
+        logging.info("Webhook установлен: %s", webhook_url)
 
 # ===== Flask маршруты =====
 @flask_app.route("/")
 def home():
-    return "БесДим работает 😏"
+    return "БесДим работает 😏"
 
 @flask_app.route("/webhook/<token>", methods=["POST"])
 def webhook(token):
-    if token != BOT_TOKEN:
-        return "Forbidden", 403
+    if token != BOT_TOKEN:
+        return "Forbidden", 403
 
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    loop.run_until_complete(telegram_app.process_update(update))
-    return "OK"
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    loop.run_until_complete(telegram_app.process_update(update))
+    return "OK"
 
 # ===== Инициализация при старте =====
 @flask_app.before_request
 def before_request():
-    if not getattr(flask_app, "initialized", False):
-        flask_app.initialized = True
-        loop.run_until_complete(setup_bot())
+    if not getattr(flask_app, "initialized", False):
+        flask_app.initialized = True
+        loop.run_until_complete(setup_bot())
 
 # ===== Запуск (для локального теста) =====
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
