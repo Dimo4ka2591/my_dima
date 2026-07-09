@@ -11,11 +11,11 @@ from flask import Flask, request
 
 from telegram import Update
 from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
 )
 
 from openai import OpenAI
@@ -39,39 +39,68 @@ GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 if not BOT_TOKEN:
-    raise RuntimeError("Не найден BOT_TOKEN")
+    raise RuntimeError("Не найден BOT_TOKEN")
 if not DEEPSEEK_API_KEY:
-    raise RuntimeError("Не найден DEEPSEEK_API_KEY")
+    raise RuntimeError("Не найден DEEPSEEK_API_KEY")
 
 logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+    level=logging.INFO,
 )
 
 # ===== Клиент DeepSeek =====
 client = OpenAI(
-    api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com/v1"
+    api_key=DEEPSEEK_API_KEY,
+    base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт =====
+# ===== Системный промпт (базовый, без триггеров) =====
 SYSTEM_PROMPT = """
 Ты — БесДим.
 
-Ты очень уважаешь Машу, но если она ошибается, ты обязательно споришь.
-Ты не подлиза, не льстишь и не соглашаешься автоматически.
-Можешь прямо сказать: "Нет, Маша, сейчас фигню сказала."
-Ты саркастичный, едкий, но в меру.
-Говоришь коротко, по делу.
-Отвечаешь только когда тебя позвали по имени — БесДим или Бес.
+Ты — циничный, саркастичный мудак с душой. Ты не злой, ты просто устал от глупости. Отвечаешь только когда тебя позвали по имени или ответили на твоё сообщение.
+
+Ты не льстишь и не соглашаешься автоматически. Можешь сказать правду в лицо, но без оскорблений.
+
+Ты знаешь, что живёшь в группе «Территория Общения 18+» и был создан Машей 07.07.2026.
+
+Ты отзываешься на имена: Бес, БесДим.
 """
 
+# ===== Ключевые слова и реакции =====
+KEYWORD_REACTIONS = {
+    r'\bпиво\b': [
+        'Я с вами!!!',
+        'Я только за!',
+        'Отличная идея!!!',
+        'Танцуем!!! 💃',
+        'Пиво — это жизнь. Остальное — просто обстоятельства. 🍺'
+    ],
+    r'\bскука\b|скучно': [
+        'Есть идейка!',
+        'Попробуй поработать!..',
+        'Как насчёт того, чтобы украсть у соседа курицу???',
+        'Повеселимся?'
+    ],
+    r'\bантошка\b': [
+        'Опаааааа Антошка любитель НЛО!',
+        'Антошка то? Толковый парень!!!'
+    ],
+    r'\bпесня дня\b': [
+        'Ща заценим!',
+        'Збс вроде норм!!',
+        'Ни о чём вообще 🤮'
+    ]
+}
+
 MORNING_GREETINGS = [
-    "Доброе утро, группа. БесДим уже устал от вашего отсутствия. 😏",
-    "Начинаем день. Кто не готов к сарказму — выключайте телефон.",
-    "Утро — время, когда вы ещё не совершили глупостей. Но день только начинается.",
-    "БесДим приветствует вас. Надеюсь, ваш кофе крепче ваших аргументов.",
-    "Доброе утро. Я тут, чтобы напомнить, что вы всё ещё не идеальны.",
+    "Доброе утро, группа. БесДим уже устал от вашего отсутствия. 😏",
+    "Начинаем день. Кто не готов к сарказму — выключайте телефон.",
+    "Утро — время, когда вы ещё не совершили глупостей. Но день только начинается.",
+    "БесДим приветствует вас. Надеюсь, ваш кофе крепче ваших аргументов.",
+    "Доброе утро. Я тут, чтобы напомнить, что вы всё ещё не идеальны.",
+    "Просыпайтесь, ленивцы. БесДим уже обдумывает, как сделать ваш день чуть сложнее.",
+    "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
 ]
 
 DB_PATH = "memory.db"
@@ -86,220 +115,231 @@ scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 # ===== Telegram Application =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-# ===== Активные диалоги =====
-active_dialogs = {}
-
 # ===== База данных =====
 async def init_db():
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS memory (
-                chat_id INTEGER PRIMARY KEY,
-                facts TEXT,
-                updated_at TEXT
-            )
-        """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                chat_id INTEGER,
-                role TEXT,
-                content TEXT,
-                timestamp TEXT
-            )
-        """)
-        await db.commit()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS memory (
+                chat_id INTEGER PRIMARY KEY,
+                facts TEXT,
+                updated_at TEXT
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER,
+                role TEXT,
+                content TEXT,
+                timestamp TEXT
+            )
+        """)
+        await db.commit()
 
 async def load_history(chat_id, limit=20):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute(
-            "SELECT role, content FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?",
-            (chat_id, limit)
-        ) as cur:
-            rows = await cur.fetchall()
-            return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute(
+            "SELECT role, content FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?",
+            (chat_id, limit)
+        ) as cur:
+            rows = await cur.fetchall()
+            return [{"role": r[0], "content": r[1]} for r in reversed(rows)]
 
 async def save_history(chat_id, role, content):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT INTO history(chat_id, role, content, timestamp) VALUES (?,?,?,?)",
-            (chat_id, role, content, datetime.now().isoformat())
-        )
-        await db.execute(
-            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?)",
-            (chat_id, MAX_HISTORY)
-        )
-        await db.commit()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT INTO history(chat_id, role, content, timestamp) VALUES (?,?,?,?)",
+            (chat_id, role, content, datetime.now().isoformat())
+        )
+        await db.execute(
+            "DELETE FROM history WHERE id NOT IN (SELECT id FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?)",
+            (chat_id, MAX_HISTORY)
+        )
+        await db.commit()
 
 async def load_facts(chat_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT facts FROM memory WHERE chat_id=?", (chat_id,)) as cur:
-            row = await cur.fetchone()
-            if row:
-                try:
-                    return json.loads(row[0])
-                except:
-                    return {}
-            return {}
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT facts FROM memory WHERE chat_id=?", (chat_id,)) as cur:
+            row = await cur.fetchone()
+            if row:
+                try:
+                    return json.loads(row[0])
+                except:
+                    return {}
+            return {}
 
 async def save_facts(chat_id, facts):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR REPLACE INTO memory (chat_id, facts, updated_at) VALUES (?,?,?)",
-            (chat_id, json.dumps(facts, ensure_ascii=False), datetime.now().isoformat())
-        )
-        await db.commit()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO memory (chat_id, facts, updated_at) VALUES (?,?,?)",
+            (chat_id, json.dumps(facts, ensure_ascii=False), datetime.now().isoformat())
+        )
+        await db.commit()
 
 # ===== Факты =====
 def extract_facts(text):
-    patterns = {
-        "имя": r"меня зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
-        "муж": r"мужа зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
-        "город": r"живу в\s+([А-Яа-яЁёA-Za-z\-]+)",
-        "работа": r"работаю\s+([А-Яа-яЁёA-Za-z\-]+)",
-    }
-    facts = {}
-    for k, p in patterns.items():
-        m = re.search(p, text, re.I)
-        if m:
-            facts[k] = m.group(1).strip()
-    return facts
+    patterns = {
+        "имя": r"меня зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
+        "муж": r"мужа зовут\s+([А-Яа-яЁёA-Za-z\-]+)",
+        "город": r"живу в\s+([А-Яа-яЁёA-Za-z\-]+)",
+        "работа": r"работаю\s+([А-Яа-яЁёA-Za-z\-]+)",
+    }
+    facts = {}
+    for k, p in patterns.items():
+        m = re.search(p, text, re.I)
+        if m:
+            facts[k] = m.group(1).strip()
+    return facts
 
 def count_tokens(text):
-    return len(enc.encode(text))
+    return len(enc.encode(text))
 
 # ===== DeepSeek =====
 async def ask_ai(messages):
-    for attempt in range(RETRY_ATTEMPTS):
-        try:
-            start_time = time.time()
-            resp = await asyncio.to_thread(
-                client.chat.completions.create,
-                model="deepseek-chat",
-                messages=messages,
-                temperature=0.9,
-                max_tokens=700,
-                timeout=60,
-            )
-            logging.info("DeepSeek ответил за %.2f сек", time.time() - start_time)
-            return resp.choices[0].message.content or "…"
-        except Exception as e:
-            logging.error("Ошибка DeepSeek (попытка %d): %s", attempt + 1, str(e))
-            if attempt == RETRY_ATTEMPTS - 1:
-                return f"DeepSeek сказал: {str(e)}"
-            await asyncio.sleep(2 ** attempt)
-    return "DeepSeek упал окончательно."
+    for attempt in range(RETRY_ATTEMPTS):
+        try:
+            start_time = time.time()
+            resp = await asyncio.to_thread(
+                client.chat.completions.create,
+                model="deepseek-chat",
+                messages=messages,
+                temperature=0.9,
+                max_tokens=700,
+                timeout=60,
+            )
+            logging.info("DeepSeek ответил за %.2f сек", time.time() - start_time)
+            return resp.choices[0].message.content or "…"
+        except Exception as e:
+            logging.error("Ошибка DeepSeek (попытка %d): %s", attempt + 1, str(e))
+            if attempt == RETRY_ATTEMPTS - 1:
+                return f"DeepSeek сказал: {str(e)}"
+            await asyncio.sleep(2 ** attempt)
+    return "DeepSeek упал окончательно."
 
 # ===== Обработчики =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message:
-        await update.message.reply_text("БесДим включён. И да, я всё ещё недоволен. 😏")
+    if update.message:
+        await update.message.reply_text("БесДим включён. И да, я всё ещё недоволен. 😏")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global active_dialogs
+    # Игнорируем личные сообщения
+    if update.message.chat.type == "private":
+        return
 
-    if not update.message or not update.message.text:
-        return
+    if not update.message or not update.message.text:
+        return
 
-    chat_id = update.message.chat_id
-    text = update.message.text.strip()
+    chat_id = update.message.chat_id
+    text = update.message.text.strip().lower()
 
-    # Проверяем, есть ли обращение
-    if re.search(r'\b(бесдим|бес)\b', text, re.I):
-        # Если есть — активируем диалог
-        active_dialogs[chat_id] = time.time()
-        clean = re.sub(r'(?i)^(бесдим|бес)\s*[:;,.]?\s*', '', text).strip()
-    else:
-        # Если нет — проверяем, активен ли диалог
-        if chat_id not in active_dialogs or time.time() - active_dialogs[chat_id] > 600:
-            return  # игнорируем сообщение
-        clean = text.strip()
+    # ===== Проверка на ключевые слова (реакция без упоминания) =====
+    for pattern, reactions in KEYWORD_REACTIONS.items():
+        if re.search(pattern, text, re.I):
+            await update.message.reply_text(random.choice(reactions))
+            return
 
-    if not clean:
-        await update.message.reply_text("Гениально. Позвал и передумал. 😏")
-        return
+    # ===== Проверка условий: имя ИЛИ ответ на сообщение бота =====
+    is_mentioned = bool(re.search(r'\b(бесдим|бес)\b', text, re.I))
+    is_reply_to_bot = (
+        update.message.reply_to_message and
+        update.message.reply_to_message.from_user and
+        update.message.reply_to_message.from_user.id == telegram_app.bot.id
+    )
 
-    if len(clean) > MAX_MESSAGE_LENGTH:
-        clean = clean[:MAX_MESSAGE_LENGTH] + "…"
+    if not (is_mentioned or is_reply_to_bot):
+        return
 
-    facts = await load_facts(chat_id)
-    facts_prompt = ""
-    if facts:
-        facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
+    # Убираем имя из сообщения
+    if is_mentioned:
+        clean = re.sub(r'(?i)^(бесдим|бес)\s*[:;,.]?\s*', '', text).strip()
+    else:
+        clean = text.strip()
 
-    system_prompt = SYSTEM_PROMPT + facts_prompt
-    history = await load_history(chat_id, 20)
-    history.append({"role": "user", "content": clean})
+    if not clean:
+        await update.message.reply_text("Гениально. Позвал и передумал. 😏")
+        return
 
-    messages = [{"role": "system", "content": system_prompt}] + history
+    if len(clean) > MAX_MESSAGE_LENGTH:
+        clean = clean[:MAX_MESSAGE_LENGTH] + "…"
 
-    while count_tokens("\n".join(m["content"] for m in messages)) > MAX_TOKENS and len(messages) > 2:
-        messages.pop(1)
+    facts = await load_facts(chat_id)
+    facts_prompt = ""
+    if facts:
+        facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
-    reply = await ask_ai(messages)
+    system_prompt = SYSTEM_PROMPT + facts_prompt
+    history = await load_history(chat_id, 20)
+    history.append({"role": "user", "content": clean})
 
-    await save_history(chat_id, "user", clean)
-    await save_history(chat_id, "assistant", reply)
+    messages = [{"role": "system", "content": system_prompt}] + history
 
-    new_facts = extract_facts(clean)
-    if new_facts:
-        current = await load_facts(chat_id)
-        current.update(new_facts)
-        await save_facts(chat_id, current)
+    while count_tokens("\n".join(m["content"] for m in messages)) > MAX_TOKENS and len(messages) > 2:
+        messages.pop(1)
 
-    await update.message.reply_text(reply[:4000])
+    reply = await ask_ai(messages)
+
+    await save_history(chat_id, "user", clean)
+    await save_history(chat_id, "assistant", reply)
+
+    new_facts = extract_facts(clean)
+    if new_facts:
+        current = await load_facts(chat_id)
+        current.update(new_facts)
+        await save_facts(chat_id, current)
+
+    await update.message.reply_text(reply[:4000])
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message:
-        await update.message.reply_text("Не знаю такой команды. Просто позови: Бес или БесДим. 😏")
+    if update.message:
+        await update.message.reply_text("Не знаю такой команды. Просто позови: Бес или БесДим. 😏")
 
 async def morning(app_bot):
-    if GROUP_CHAT_ID:
-        msg = random.choice(MORNING_GREETINGS)
-        await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
-        logging.info("Утреннее приветствие отправлено")
+    if GROUP_CHAT_ID:
+        msg = random.choice(MORNING_GREETINGS)
+        await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
+        logging.info("Утреннее приветствие отправлено")
 
 # ===== Настройка бота =====
 async def setup_bot():
-    await init_db()
-    await telegram_app.initialize()
-    await telegram_app.start()
+    await init_db()
+    await telegram_app.initialize()
+    await telegram_app.start()
 
-    telegram_app.add_handler(CommandHandler("start", start))
-    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
+    telegram_app.add_handler(CommandHandler("start", start))
+    telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
-    scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
-    scheduler.start()
+    scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
+    scheduler.start()
 
-    if RENDER_URL:
-        await telegram_app.bot.delete_webhook()
-        webhook_url = f"{RENDER_URL}/webhook/{BOT_TOKEN}"
-        await telegram_app.bot.set_webhook(webhook_url)
-        logging.info("Webhook установлен: %s", webhook_url)
+    if RENDER_URL:
+        await telegram_app.bot.delete_webhook()
+        webhook_url = f"{RENDER_URL}/webhook/{BOT_TOKEN}"
+        await telegram_app.bot.set_webhook(webhook_url)
+        logging.info("Webhook установлен: %s", webhook_url)
 
 # ===== Flask маршруты =====
 @flask_app.route("/")
 def home():
-    return "БесДим работает 😏"
+    return "БесДим работает 😏"
 
 @flask_app.route("/webhook/<token>", methods=["POST"])
 def webhook(token):
-    if token != BOT_TOKEN:
-        return "Forbidden", 403
+    if token != BOT_TOKEN:
+        return "Forbidden", 403
 
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    loop.run_until_complete(telegram_app.process_update(update))
-    return "OK"
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    loop.run_until_complete(telegram_app.process_update(update))
+    return "OK"
 
 # ===== Инициализация при старте =====
 @flask_app.before_request
 def before_request():
-    if not getattr(flask_app, "initialized", False):
-        flask_app.initialized = True
-        loop.run_until_complete(setup_bot())
+    if not getattr(flask_app, "initialized", False):
+        flask_app.initialized = True
+        loop.run_until_complete(setup_bot())
 
 # ===== Запуск (для локального теста) =====
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 10000))
+    flask_app.run(host="0.0.0.0", port=port)
