@@ -157,6 +157,27 @@ async def init_db():
                 timestamp TEXT
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS seen_users (
+                chat_id INTEGER,
+                user_id INTEGER PRIMARY KEY,
+                first_seen TEXT
+            )
+        """)
+        await db.commit()
+
+async def is_new_user(chat_id, user_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT user_id FROM seen_users WHERE user_id=?", (user_id,)) as cur:
+            row = await cur.fetchone()
+            return row is None
+
+async def mark_user_seen(chat_id, user_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO seen_users (chat_id, user_id, first_seen) VALUES (?, ?, ?)",
+            (chat_id, user_id, datetime.now().isoformat())
+        )
         await db.commit()
 
 async def load_history(chat_id, limit=100):
@@ -251,7 +272,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+    first_name = update.message.from_user.first_name or "Пользователь"
     text = update.message.text.strip().lower()
+
+    # ===== Проверка на нового пользователя =====
+    if await is_new_user(chat_id, user_id):
+        await mark_user_seen(chat_id, user_id)
+        await update.message.reply_text(random.choice(WELCOME_MESSAGES))
+        return
 
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.search(pattern, text, re.I):
@@ -317,13 +346,6 @@ async def morning(app_bot):
         await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
         logging.info("Утреннее приветствие отправлено")
 
-async def greet_new_member(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
-    if update.new_chat_member.status == "member":
-        await context.bot.send_message(
-            chat_id=update.chat.id,
-            text=random.choice(WELCOME_MESSAGES)
-        )
-
 # ===== Настройка бота =====
 async def setup_bot():
     await init_db()
@@ -333,7 +355,6 @@ async def setup_bot():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
-    telegram_app.add_handler(ChatMemberHandler(greet_new_member, ChatMemberHandler.CHAT_MEMBER))
 
     scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
     scheduler.start()
