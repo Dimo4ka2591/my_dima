@@ -55,7 +55,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт (обновлённый) =====
+# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — Дмитрий. Ты — дерзкий, саркастичный, но не оскорбительный собеседник. Ты можешь подколоть, но не переходишь на личности.
 
@@ -159,7 +159,7 @@ async def init_db():
         """)
         await db.commit()
 
-async def load_history(chat_id, limit=20):
+async def load_history(chat_id, limit=100):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT role, content FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?",
@@ -286,7 +286,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
     system_prompt = SYSTEM_PROMPT + facts_prompt
-    history = await load_history(chat_id, 20)
+    history = await load_history(chat_id, 100)
     history.append({"role": "user", "content": clean})
 
     messages = [{"role": "system", "content": system_prompt}] + history
