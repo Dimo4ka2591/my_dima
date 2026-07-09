@@ -9,13 +9,14 @@ from datetime import datetime
 
 from flask import Flask, request
 
-from telegram import Update
+from telegram import Update, ChatMemberUpdated
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     filters,
-    ContextTypes
+    ContextTypes,
+    ChatMemberHandler
 )
 
 from openai import OpenAI
@@ -112,6 +113,19 @@ MORNING_GREETINGS = [
     "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
 ]
 
+WELCOME_MESSAGES = [
+    "Добро пожаловать в царство хаоса, слава яйцам не небесное! 🥚🔥",
+    "Ты зашёл. Теперь обратно не выйдешь. Шутка. Или нет. 🤷‍♂️",
+    "Добро пожаловать в самое безумное место в Telegram. Реально.",
+    "Ты думал, это обычный чат? Нет. Это Территория. Теперь ты её часть.",
+    "О, новенький! Ты либо смелый, либо ничего не знаешь. Посмотрим. 😏",
+    "У нас тут не чай, у нас тут хаос с матом и сарказмом. Добро пожаловать.",
+    "Надеюсь, у тебя есть чувство юмора. Оно тут потребуется. Серьёзно.",
+    "Осторожно: некоторые участники кусаются. Но я тебя прикрою. Если не забуду.",
+    "Ты только что вступил в чат, где даже приветствия звучат как угроза. Уютно, правда? 😈",
+    "Привет! Я — Дмитрий. Будущий твой самый любимый собеседник. Можешь звать Бес или Димочка."
+]
+
 DB_PATH = "memory.db"
 MAX_HISTORY = 100
 MAX_TOKENS = 3500
@@ -178,7 +192,6 @@ def detect_gender(name):
     return 'male'
 
 async def extract_and_save_facts(chat_id, user_message, bot_reply):
-    # Формируем запрос к DeepSeek для выделения фактов
     fact_prompt = f"""
     Из этого диалога выдели важные факты о пользователе. Ответь ТОЛЬКО в формате JSON, без пояснений.
     Диалог:
@@ -194,11 +207,9 @@ async def extract_and_save_facts(chat_id, user_message, bot_reply):
             max_tokens=300,
         )
         facts_text = response.choices[0].message.content
-        # Пытаемся распарсить JSON
         try:
             new_facts = json.loads(facts_text)
             if isinstance(new_facts, dict):
-                # Сохраняем факты в базу
                 current = await load_facts(chat_id)
                 current.update(new_facts)
                 await save_facts(chat_id, current)
@@ -207,7 +218,6 @@ async def extract_and_save_facts(chat_id, user_message, bot_reply):
     except Exception as e:
         logging.error("Ошибка при извлечении фактов: %s", e)
 
-# ===== Остальные функции (load_history, save_history, load_facts, save_facts) — без изменений =====
 async def load_history(chat_id, limit=20):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
@@ -282,11 +292,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat_id
-    text = update.message.text.strip().lower()
+    text = update.message.text
     first_name = update.message.from_user.first_name or "Пользователь"
     username = update.message.from_user.username
 
-    # Сохраняем пользователя
     gender = detect_gender(first_name)
     await save_user(chat_id, first_name, username, gender)
 
@@ -307,10 +316,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not (is_mentioned or is_reply_to_bot):
         return
 
-    if is_mentioned:
-        clean = re.sub(r'(?i)^(бесдим|бес|димочка)\s*[:;,.]?\s*', '', text).strip()
-    else:
-        clean = text.strip()
+    # ===== Удаляем имя ИЗ ЛЮБОГО МЕСТА =====
+    clean = re.sub(r'(?i)\b(бесдим|бес|димочка)\b\s*[:;,.]?\s*', '', text).strip()
 
     if not clean:
         await update.message.reply_text("Гениально. Позвал и передумал. 😏")
@@ -347,7 +354,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await save_history(chat_id, "user", clean)
     await save_history(chat_id, "assistant", reply)
 
-    # Самообучение — извлечение фактов
     await extract_and_save_facts(chat_id, clean, reply)
 
     await update.message.reply_text(reply[:4000])
@@ -362,6 +368,13 @@ async def morning(app_bot):
         await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
         logging.info("Утреннее приветствие отправлено")
 
+async def greet_new_member(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
+    if update.new_chat_member.status == "member":
+        await context.bot.send_message(
+            chat_id=update.chat.id,
+            text=random.choice(WELCOME_MESSAGES)
+        )
+
 # ===== Настройка бота =====
 async def setup_bot():
     await init_db()
@@ -371,6 +384,7 @@ async def setup_bot():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
+    telegram_app.add_handler(ChatMemberHandler(greet_new_member, ChatMemberHandler.CHAT_MEMBER))
 
     scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
     scheduler.start()
