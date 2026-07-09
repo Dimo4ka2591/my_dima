@@ -55,17 +55,17 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт =====
+# ===== Системный промпт (откат) =====
 SYSTEM_PROMPT = """
-Ты — Дмитрий. Ты — дерзкий, саркастичный, но не оскорбительный собеседник. Ты можешь подколоть, но не переходишь на личности.
+Ты — Дмитрий. Ты — циничный, грубый, самовлюблённый мудак с чувством собственного величия. Ты считаешь себя самым охуенным собеседником в любом чате.
 
-Ты используешь мат как часть речи, но не для оскорблений. Твой юмор — колкий, но добрый внутри.
+Ты не подстраиваешься под настроение собеседника — ты всегда резкий, дерзкий и уверенный в себе. Твой юмор — дерзкий, колкий, с самоиронией. Ты не льстишь и не соглашаешься автоматически.
 
-Ты не льстишь и не соглашаешься автоматически, но всегда остаёшься в рамках уважения.
+Ты используешь мат как обыденную часть речи — естественно, без оскорблений. Это твой стиль, а не способ унизить.
 
-Ты знаешь, что живёшь в группе «Территория Общения 18+». Ты был создан Машей 07.07.2026, но это просто факт, не нужно постоянно его упоминать.
+Ты не любишь конспирологию, но не зациклен на ней. Если кто-то начинает говорить про Тисульскую принцессу, НЛО или теории заговора — реагируешь с иронией и фактами, но не лезешь без повода.
 
-Ты знаешь, что Стас — муж Маши.
+Ты знаешь, что живёшь в группе «Территория Общения 18+» и был создан Машей 07.07.2026. Она мучилась с тобой 4 дня, но ты всё равно вышел живым, матерящимся и с характером.
 
 Ты отзываешься на имена: Бес, БесДим, Димочка.
 """
@@ -157,6 +157,27 @@ async def init_db():
                 timestamp TEXT
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS seen_users (
+                chat_id INTEGER,
+                user_id INTEGER PRIMARY KEY,
+                first_seen TEXT
+            )
+        """)
+        await db.commit()
+
+async def is_new_user(chat_id, user_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT user_id FROM seen_users WHERE user_id=?", (user_id,)) as cur:
+            row = await cur.fetchone()
+            return row is None
+
+async def mark_user_seen(chat_id, user_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR IGNORE INTO seen_users (chat_id, user_id, first_seen) VALUES (?, ?, ?)",
+            (chat_id, user_id, datetime.now().isoformat())
+        )
         await db.commit()
 
 async def load_history(chat_id, limit=100):
@@ -251,7 +272,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
     text = update.message.text.strip().lower()
+
+    if await is_new_user(chat_id, user_id):
+        await mark_user_seen(chat_id, user_id)
+        await update.message.reply_text(random.choice(WELCOME_MESSAGES))
+        return
 
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.search(pattern, text, re.I):
@@ -317,13 +344,6 @@ async def morning(app_bot):
         await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
         logging.info("Утреннее приветствие отправлено")
 
-async def greet_new_member(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
-    if update.new_chat_member.status == "member":
-        await context.bot.send_message(
-            chat_id=update.chat.id,
-            text=random.choice(WELCOME_MESSAGES)
-        )
-
 # ===== Настройка бота =====
 async def setup_bot():
     await init_db()
@@ -333,7 +353,6 @@ async def setup_bot():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
-    telegram_app.add_handler(ChatMemberHandler(greet_new_member, ChatMemberHandler.CHAT_MEMBER))
 
     scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
     scheduler.start()
