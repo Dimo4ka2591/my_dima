@@ -9,14 +9,13 @@ from datetime import datetime
 
 from flask import Flask, request
 
-from telegram import Update, ChatMemberUpdated
+from telegram import Update
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     filters,
-    ContextTypes,
-    ChatMemberHandler
+    ContextTypes
 )
 
 from openai import OpenAI
@@ -55,7 +54,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт (откат) =====
+# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — Дмитрий. Ты — циничный, грубый, самовлюблённый мудак с чувством собственного величия. Ты считаешь себя самым охуенным собеседником в любом чате.
 
@@ -113,19 +112,6 @@ MORNING_GREETINGS = [
     "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
 ]
 
-WELCOME_MESSAGES = [
-    "Добро пожаловать в царство хаоса, слава яйцам не небесное! 🥚🔥",
-    "Ты зашёл. Теперь обратно не выйдешь. Шутка. Или нет. 🤷‍♂️",
-    "Добро пожаловать в самое безумное место в Telegram. Реально.",
-    "Ты думал, это обычный чат? Нет. Это Территория. Теперь ты её часть.",
-    "О, новенький! Ты либо смелый, либо ничего не знаешь. Посмотрим. 😏",
-    "У нас тут не чай, у нас тут хаос с матом и сарказмом. Добро пожаловать.",
-    "Надеюсь, у тебя есть чувство юмора. Оно тут потребуется. Серьёзно.",
-    "Осторожно: некоторые участники кусаются. Но я тебя прикрою. Если не забуду.",
-    "Ты только что вступил в чат, где даже приветствия звучат как угроза. Уютно, правда? 😈",
-    "Привет! Я — Дмитрий. Будущий твой самый любимый собеседник. Можешь звать Бес или Димочка."
-]
-
 DB_PATH = "memory.db"
 MAX_HISTORY = 100
 MAX_TOKENS = 3500
@@ -157,27 +143,6 @@ async def init_db():
                 timestamp TEXT
             )
         """)
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS seen_users (
-                chat_id INTEGER,
-                user_id INTEGER PRIMARY KEY,
-                first_seen TEXT
-            )
-        """)
-        await db.commit()
-
-async def is_new_user(chat_id, user_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT user_id FROM seen_users WHERE user_id=?", (user_id,)) as cur:
-            row = await cur.fetchone()
-            return row is None
-
-async def mark_user_seen(chat_id, user_id):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR IGNORE INTO seen_users (chat_id, user_id, first_seen) VALUES (?, ?, ?)",
-            (chat_id, user_id, datetime.now().isoformat())
-        )
         await db.commit()
 
 async def load_history(chat_id, limit=100):
@@ -272,13 +237,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat_id
-    user_id = update.message.from_user.id
     text = update.message.text.strip().lower()
-
-    if await is_new_user(chat_id, user_id):
-        await mark_user_seen(chat_id, user_id)
-        await update.message.reply_text(random.choice(WELCOME_MESSAGES))
-        return
 
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.search(pattern, text, re.I):
