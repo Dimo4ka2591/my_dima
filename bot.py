@@ -299,11 +299,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gender = detect_gender(first_name)
     await save_user(chat_id, first_name, username, gender)
 
-    # ===== Проверка на ключевые слова =====
+    # ===== Проверка на ключевые слова (через оригинальный текст) =====
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.search(pattern, text, re.I):
             await update.message.reply_text(random.choice(reactions))
             return
+
+    # ===== Удаляем имя из сообщения =====
+    clean = re.sub(r'(?i)(бесдим|бес|димочка)', '', text).strip()
+    if not clean:
+        await update.message.reply_text("Гениально. Позвал и передумал. 😏")
+        return
 
     # ===== Проверка условий =====
     is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка)\b', text, re.I))
@@ -314,13 +320,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if not (is_mentioned or is_reply_to_bot):
-        return
-
-    # ===== Удаляем имя ИЗ ЛЮБОГО МЕСТА =====
-    clean = re.sub(r'(?i)\b(бесдим|бес|димочка)\b\s*[:;,.]?\s*', '', text).strip()
-
-    if not clean:
-        await update.message.reply_text("Гениально. Позвал и передумал. 😏")
         return
 
     if len(clean) > MAX_MESSAGE_LENGTH:
