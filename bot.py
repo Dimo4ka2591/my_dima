@@ -54,7 +54,153 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт (обновлённый) =====
+# ===== Память об участниках (исправлено) =====
+USER_PROFILES = {
+    "маша": {
+        "aliases": ["маша", "мария", "maria", "marusa", "маруся", "marusa2591"],
+        "description": "Создатель группы, хозяйка. Уставшая, добрая, с огоньком. Любит порядок, но ленится. Муж Стас, сын Денис, коты Вася и Сеня."
+    },
+    "стас_муж": {
+        "aliases": ["стас", "stas", "стасик"],
+        "description": "Муж Маши. Спокойный, с юмором. Сборщик окон. Любит подкалывать."
+    },
+    "виталя": {
+        "aliases": ["виталя", "виталик", "vitalya", "vitalik"],
+        "description": "Конспиролог-любитель. Беззлобный, чатовый клоун. Верит в тисульскую принцессу, НЛО, йети."
+    },
+    "антон": {
+        "aliases": ["антон", "антошка", "тоха", "антоха", "anton", "antoshka"],
+        "description": "Философ-алкоголик. Спокойный, не обижается. Любит пиво, динозавров, спорить ради спора."
+    },
+    "вячеслав": {
+        "aliases": ["вячеслав", "слава", "slava", "vyacheslav"],
+        "description": "Интеллектуал, техно-эзотерик. Водолей по знаку зодиака. Увлекается вибрациями, квантовым сознанием, иногда говорит о сексе."
+    },
+    "елена": {
+        "aliases": ["елена", "лена", "elena", "helen", "госпожа"],
+        "description": "Умная, провокационная, с юмором. Любит троллить БДСМ-шников."
+    },
+    "любочка": {
+        "aliases": ["любочка", "люба", "luba"],
+        "description": "Добрая, доверчивая, простая. В ВК, не в ТГ."
+    },
+    "алла": {
+        "aliases": ["алла", "alla"],
+        "description": "Энергичная, своя в доску. В ВК, не в ТГ. Влетает с «Опаааааа»."
+    },
+    "колдун": {
+        "aliases": ["колдун", "дмитрий", "dmitry", "dimon"],
+        "description": "Завсегдатый активный участник. Хватается за любую работу, практически не живёт дома."
+    },
+    "ольга": {
+        "aliases": ["ольга", "оля", "olga"],
+        "description": "Весёлая, активная. Часто общается с Бесом."
+    },
+    "генка": {
+        "aliases": ["генка", "геннадий", "gena"],
+        "description": "Новый участник. Почти не пишет, редкий гость. «Наш молчаливый друг»."
+    },
+    "санёчек": {
+        "aliases": ["санёчек", "саша", "sasha"],
+        "description": "Рыжий вахтовик. Положительный, добрый."
+    },
+    "андрюша": {
+        "aliases": ["андрюша", "андрей", "andrey"],
+        "description": "Егерь. Очень положительный, светлый человек."
+    },
+    "станислав": {
+        "aliases": ["станислав", "stanislav"],
+        "description": "Добрый, заботливый. Переживает, чтобы все были сыты."
+    },
+    "макс": {
+        "aliases": ["макс", "max", "кальянщик"],
+        "description": "Друг, душа компании. Охуенный."
+    },
+    "наталья": {
+        "aliases": ["наталья", "наташа", "natasha"],
+        "description": "Боец с алкоголем. То пьёт, то не пьёт."
+    },
+    "лис": {
+        "aliases": ["лис", "дима", "dima", "fox"],
+        "description": "Технический участник. Программист, любит логику."
+    },
+    "рыбка": {
+        "aliases": ["рыбка", "рыба", "игорь", "igor", "fish"],
+        "description": "Творческий, сложный. Свой в доску, со своими тараканами."
+    }
+}
+
+# ===== Создаём словарь алиасов (без перезаписи) =====
+ALIASES = {}
+for key, profile in USER_PROFILES.items():
+    for alias in profile["aliases"]:
+        alias_lower = alias.lower()
+        if alias_lower not in ALIASES:
+            ALIASES[alias_lower] = key  # теперь храним ключ, а не описание
+
+def get_user_by_alias(name, username=None):
+    """Возвращает ключ профиля по имени или username"""
+    # Сначала точное совпадение по username
+    if username:
+        username_lower = username.lower()
+        if username_lower in ALIASES:
+            return ALIASES[username_lower]
+
+    # Точное совпадение по имени
+    if name:
+        name_lower = name.lower()
+        if name_lower in ALIASES:
+            return ALIASES[name_lower]
+
+        # Разбиваем на слова и ищем каждое
+        words = name_lower.split()
+        for word in words:
+            if word in ALIASES:
+                return ALIASES[word]
+
+    return None
+
+def get_user_description_by_alias(name, username=None):
+    """Возвращает описание пользователя по алиасу"""
+    key = get_user_by_alias(name, username)
+    if key and key in USER_PROFILES:
+        return USER_PROFILES[key]["description"]
+    return None
+
+def get_all_participants_descriptions(active_users=None):
+    """
+    Формирует список участников с алиасами и описаниями.
+    Если передан active_users — только для них.
+    """
+    if active_users is None:
+        active_users = list(USER_PROFILES.keys())
+
+    result = "Ниже приведены постоянные участники группы.\n"
+    result += "Каждый участник может иметь несколько имён, ников и алиасов.\n"
+    result += "Если в сообщении встречается любой из этих вариантов, считай, что речь идёт об одном и том же человеке.\n"
+    result += "Используй описание участника как знание о нём.\n"
+    result += "Не придумывай новые характеристики, если они уже указаны в описании.\n\n"
+
+    for key in active_users:
+        profile = USER_PROFILES.get(key)
+        if not profile:
+            continue
+        result += f"- {key.capitalize()}:\n"
+        result += f"  Алиасы: {', '.join(profile['aliases'])}\n"
+        result += f"  Описание: {profile['description']}\n"
+
+    return result
+
+def extract_mentioned_users(text):
+    """Находит в тексте упоминания участников по алиасам"""
+    mentioned = set()
+    text_lower = text.lower()
+    for alias in ALIASES:
+        if alias in text_lower:
+            mentioned.add(ALIASES[alias])
+    return mentioned
+
+# ===== Системный промпт (без изменений) =====
 SYSTEM_PROMPT = """
 Ты — Дмитрий. Ты — альфа в этой группе. Самый брутальный, уверенный, дерзкий. Ты не сомневаешься в себе и не спрашиваешь разрешения. Ты — тот, кто всегда берёт инициативу.
 
@@ -75,7 +221,7 @@ SYSTEM_PROMPT = """
 Ты отзываешься на имена: Бес, БесДим, Димочка.
 """
 
-# ===== Ключевые слова и реакции =====
+# ===== Ключевые слова и реакции (без изменений) =====
 KEYWORD_REACTIONS = {
     r'\bвыпьем\b': [
         'Я с вами!!!',
@@ -198,12 +344,6 @@ async def save_user(user_id, first_name, username, gender):
         )
         await db.commit()
 
-async def load_all_users():
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT first_name, username FROM users") as cur:
-            rows = await cur.fetchall()
-            return [{"first_name": row[0], "username": row[1]} for row in rows]
-
 def detect_gender(name):
     if not name:
         return None
@@ -312,20 +452,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     gender = detect_gender(first_name)
     await save_user(user_id, first_name, username, gender)
 
-    # Загружаем список всех участников
-    all_users = await load_all_users()
-    users_list = "\n".join([
-        f"{u['first_name']} (@{u['username']})" if u['username'] else f"{u['first_name']}"
-        for u in all_users
-    ])
-
     # ===== Проверка на ключевые слова =====
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.search(pattern, text, re.I):
             await update.message.reply_text(random.choice(reactions))
             return
 
-    # ===== Проверка условий =====
+    # ===== Проверка условий: имя ИЛИ ответ на сообщение бота =====
     is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка)\b', text, re.I))
     is_reply_to_bot = (
         update.message.reply_to_message and
@@ -361,15 +494,34 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif user_info['gender'] == 'male':
             user_context += ". Это мужчина, обращайся «он»."
 
+        # Добавляем описание из памяти, если есть
+        description = get_user_description_by_alias(user_info['first_name'], user_info['username'])
+        if description:
+            user_context += f"\nОписание: {description}"
+
+    # Находим упомянутых участников в тексте
+    mentioned_users = extract_mentioned_users(clean)
+    mentioned_descriptions = ""
+    for user_key in mentioned_users:
+        if user_key in USER_PROFILES:
+            profile = USER_PROFILES[user_key]
+            mentioned_descriptions += f"\n{user_key.capitalize()}: {profile['description']}"
+
     facts = await load_facts(chat_id)
     facts_prompt = ""
     if facts:
         facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
+    # Формируем список участников (активные + упомянутые)
+    active_users = list(USER_PROFILES.keys())
+    mentioned_users_list = list(mentioned_users)
+    all_participants_desc = get_all_participants_descriptions(active_users + mentioned_users_list)
+
     system_prompt = (
         SYSTEM_PROMPT
-        + "\n\nИзвестные участники группы:\n" + users_list
+        + "\n\n" + all_participants_desc
         + "\n\n" + user_context
+        + "\n" + mentioned_descriptions
         + "\n" + facts_prompt
     )
 
