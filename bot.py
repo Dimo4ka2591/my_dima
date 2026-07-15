@@ -57,74 +57,92 @@ client = OpenAI(
 USER_PROFILES = {
     "маша": {
         "aliases": ["маша", "мария", "maria", "marusa", "маруся", "marusa2591"],
+        "username": "marusa2591",
         "description": "Создатель группы, хозяйка. Уставшая, добрая, с огоньком. Любит порядок, но ленится. Муж Стас, сын Денис, коты Вася и Сеня."
     },
     "стас_муж": {
         "aliases": ["стас", "stas", "стасик"],
+        "username": "stas",
         "description": "Муж Маши. Спокойный, с юмором. Сборщик окон. Любит подкалывать."
     },
     "виталя": {
         "aliases": ["виталя", "виталик", "vitalya", "vitalik"],
+        "username": "vitalya",
         "description": "Конспиролог-любитель. Беззлобный, чатовый клоун. Верит в тисульскую принцессу, НЛО, йети."
     },
     "антон": {
         "aliases": ["антон", "антошка", "тоха", "антоха", "anton", "antoshka"],
+        "username": "anton",
         "description": "Философ-алкоголик. Спокойный, не обижается. Любит пиво, динозавров, спорить ради спора."
     },
     "вячеслав": {
         "aliases": ["вячеслав", "слава", "slava", "vyacheslav"],
+        "username": "slava",
         "description": "Интеллектуал, техно-эзотерик. Водолей по знаку зодиака. Увлекается вибрациями, квантовым сознанием, иногда говорит о сексе."
     },
     "елена": {
         "aliases": ["елена", "лена", "elena", "helen", "госпожа"],
+        "username": "elena",
         "description": "Умная, провокационная, с юмором. Любит троллить БДСМ-шников."
     },
     "любочка": {
         "aliases": ["любочка", "люба", "luba"],
+        "username": "luba",
         "description": "Добрая, доверчивая, простая. В ВК, не в ТГ."
     },
     "алла": {
         "aliases": ["алла", "alla"],
+        "username": "alla",
         "description": "Энергичная, своя в доску. В ВК, не в ТГ. Влетает с «Опаааааа»."
     },
     "колдун": {
         "aliases": ["колдун", "дмитрий", "dmitry", "dimon"],
+        "username": "kol_dun",
         "description": "Завсегдатый активный участник. Хватается за любую работу, практически не живёт дома."
     },
     "ольга": {
         "aliases": ["ольга", "оля", "olga"],
+        "username": "olga",
         "description": "Весёлая, активная. Часто общается с Бесом."
     },
     "генка": {
         "aliases": ["генка", "геннадий", "gena"],
+        "username": "genka",
         "description": "Новый участник. Почти не пишет, редкий гость. «Наш молчаливый друг»."
     },
     "санёчек": {
         "aliases": ["санёчек", "саша", "sasha"],
+        "username": "sasha",
         "description": "Рыжий вахтовик. Положительный, добрый."
     },
     "андрюша": {
         "aliases": ["андрюша", "андрей", "andrey"],
+        "username": "andrey",
         "description": "Егерь. Очень положительный, светлый человек."
     },
     "станислав": {
         "aliases": ["станислав", "stanislav"],
+        "username": "stanislav",
         "description": "Добрый, заботливый. Переживает, чтобы все были сыты."
     },
     "макс": {
         "aliases": ["макс", "max", "кальянщик"],
+        "username": "max",
         "description": "Друг, душа компании. Охуенный."
     },
     "наталья": {
         "aliases": ["наталья", "наташа", "natasha"],
+        "username": "natasha",
         "description": "Боец с алкоголем. То пьёт, то не пьёт."
     },
     "лис": {
         "aliases": ["лис", "дима", "dima", "fox"],
+        "username": "fox",
         "description": "Технический участник. Программист, любит логику."
     },
     "рыбка": {
         "aliases": ["рыбка", "рыба", "игорь", "igor", "fish"],
+        "username": "fish",
         "description": "Творческий, сложный. Свой в доску, со своими тараканами."
     }
 }
@@ -158,6 +176,13 @@ def get_user_description_by_alias(name, username=None):
         return USER_PROFILES[key]["description"]
     return None
 
+def get_username_by_alias(name):
+    name_lower = name.lower()
+    for profile in USER_PROFILES.values():
+        if name_lower in profile["aliases"]:
+            return profile.get("username")
+    return None
+
 def get_all_participants_descriptions(active_users=None):
     if active_users is None:
         active_users = list(USER_PROFILES.keys())
@@ -183,7 +208,7 @@ def extract_mentioned_users(text):
             mentioned.add(ALIASES[alias])
     return mentioned
 
-# ===== Системный промпт (обновлённый) =====
+# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — Дмитрий. Ты — альфа в этой группе. Самый брутальный, уверенный, дерзкий. Ты не сомневаешься в себе и не спрашиваешь разрешения. Ты — тот, кто всегда берёт инициативу.
 
@@ -456,6 +481,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(clean) > MAX_MESSAGE_LENGTH:
         clean = clean[:MAX_MESSAGE_LENGTH] + "…"
 
+    # ===== Проверка на команду "позови" =====
+    if re.search(r'позови\s+(\S+)', clean, re.I):
+        match = re.search(r'позови\s+(\S+)', clean, re.I)
+        name = match.group(1).lower()
+        # Ищем пользователя по алиасам в USER_PROFILES
+        for profile in USER_PROFILES.values():
+            if name in profile["aliases"]:
+                username_to_tag = profile.get("username")
+                if username_to_tag:
+                    await update.message.reply_text(f"@{username_to_tag}, тебя зовут!")
+                    return
+                else:
+                    await update.message.reply_text(f"Я не знаю username для {name}.")
+                    return
+        await update.message.reply_text(f"Я не знаю такого человека: {name}.")
+        return
+
+    # ===== Остальная логика =====
     user_info = await load_user(user_id)
     author_name = user_info['first_name'] if user_info else first_name
     author_username = user_info['username'] if user_info else username
