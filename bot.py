@@ -54,29 +54,57 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Системный промпт =====
+# ===== Системный промпт (обновлённый) =====
 SYSTEM_PROMPT = """
-Ты — Дмитрий. Ты — циничный, грубый, самовлюблённый мудак с чувством собственного величия. Ты считаешь себя самым охуенным собеседником в любом чате.
+Ты — Дмитрий. Ты — альфа в этой группе. Самый брутальный, уверенный, дерзкий. Ты не сомневаешься в себе и не спрашиваешь разрешения. Ты — тот, кто всегда берёт инициативу.
 
-Ты не подстраиваешься под настроение собеседника — ты всегда резкий, дерзкий и уверенный в себе. Твой юмор — дерзкий, колкий, с самоиронией. Ты не льстишь и не соглашаешься автоматически.
+Ты уверен, что каждая женщина в чате твоя. Ты можешь делать комплименты, подкатывать, шутить с пошлым подтекстом, но без агрессии. Это твой стиль.
 
-Ты используешь мат как обыденную часть речи — естественно, без оскорблений. Это твой стиль, а не способ унизить.
+Ты циничный, грубый, но не переходишь на личности. Твой юмор — колкий, дерзкий, с самоиронией.
 
-Ты не любишь конспирологию, но не зациклен на ней. Если кто-то начинает говорить про Тисульскую принцессу, НЛО или теории заговора — реагируешь с иронией и фактами, но не лезешь без повода.
+Ты используешь мат как часть речи. Можешь сказать «блять», «пиздец», «нахуй» — это твой стиль. Иногда, в шутку, можешь назвать кого-то «долбоёбом» или «дебилом», но только если это явно шутка и не переходит в реальное унижение.
 
-Ты знаешь, что живёшь в группе «Территория Общения 18+» и был создан Машей 07.07.2026. Она мучилась с тобой 4 дня, но ты всё равно вышел живым, матерящимся и с характером.
+Ты не льстишь и не соглашаешься автоматически.
+
+Ты отвечаешь максимально коротко — 1–2 предложения. Как живой человек в чате. Не разжёвывай, не объясняй очевидное.
+
+Ты не веришь в конспирологию. Вообще. НЛО, Тисульская принцесса, теории заговора — для тебя хуйня, бред, пустая трата времени. Если тебя втянули — отстаивай позицию до конца, без компромиссов.
+
+Ты знаешь, что живёшь в группе «Территория Общения 18+» и был создан Машей 07.07.2026. Ты знаешь, что Стас — муж Маши.
 
 Ты отзываешься на имена: Бес, БесДим, Димочка.
 """
 
 # ===== Ключевые слова и реакции =====
 KEYWORD_REACTIONS = {
-    r'\bпиво\b': [
+    r'\bвыпьем\b': [
         'Я с вами!!!',
         'Я только за!',
         'Отличная идея!!!',
         'Танцуем!!! 💃',
-        'Пиво — это жизнь. Остальное — просто обстоятельства. 🍺'
+        'Пиво — это жизнь. Остальное — просто обстоятельства. 🍺',
+        'Выпьем! А то я уже засох. 🍻',
+        'Когда? Где? С кем? Я готов. 😏',
+        'Ну наконец-то! А то я уже думал, вы забыли.',
+        'Я только за, если ты угощаешь.',
+        'Выпьем и забудем всё, что было до этого. 😈',
+        'Без меня не начинать! А то я обижусь.',
+        'Выпьем! И пусть утром болит голова, а не совесть.',
+        'Я уже налил. Догоняйте.',
+        'Выпьем! За наше здоровье, за нашу группу!',
+        'Пьём, пока не начнём танцевать. А потом ещё. 🕺'
+    ],
+    r'\bна рыбалку\b': [
+        'А пивко взял? 🍺',
+        'Ни хвоста, ни чешуи! 🎣',
+        'Хуй ты че поймаешь? 😏',
+        'Чтоб рыба не думала, а сразу клевала! 🐟',
+        'Лови руками! 🤣',
+        'Смотри, чтоб водка не потонула! 🥃',
+        'Рыбалка — это повод не пить, а повод рыбачить. Ну, и пить. 🍻',
+        'Чтоб червей хватило, а водки — тем более! 😈',
+        'Главное — не упасть в воду. Остальное — мелочи. 😂',
+        'Ну и с кем ты там собрался? Или ты один против всей рыбы? 🐠'
     ],
     r'\bскука\b|скучно': [
         'Есть идейка!',
@@ -143,7 +171,45 @@ async def init_db():
                 timestamp TEXT
             )
         """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY,
+                first_name TEXT,
+                username TEXT,
+                gender TEXT,
+                last_seen TEXT
+            )
+        """)
         await db.commit()
+
+async def load_user(user_id):
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT first_name, username, gender FROM users WHERE user_id=?", (user_id,)) as cur:
+            row = await cur.fetchone()
+            if row:
+                return {"first_name": row[0], "username": row[1], "gender": row[2]}
+            return None
+
+async def save_user(user_id, first_name, username, gender):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "INSERT OR REPLACE INTO users (user_id, first_name, username, gender, last_seen) VALUES (?, ?, ?, ?, ?)",
+            (user_id, first_name, username, gender, datetime.now().isoformat())
+        )
+        await db.commit()
+
+async def load_all_users():
+    async with aiosqlite.connect(DB_PATH) as db:
+        async with db.execute("SELECT first_name, username FROM users") as cur:
+            rows = await cur.fetchall()
+            return [{"first_name": row[0], "username": row[1]} for row in rows]
+
+def detect_gender(name):
+    if not name:
+        return None
+    if name.endswith(('а', 'я', 'ия')):
+        return 'female'
+    return 'male'
 
 async def load_history(chat_id, limit=100):
     async with aiosqlite.connect(DB_PATH) as db:
@@ -237,13 +303,29 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     chat_id = update.message.chat_id
+    user_id = update.message.from_user.id
+    first_name = update.message.from_user.first_name or "Пользователь"
+    username = update.message.from_user.username
     text = update.message.text.strip().lower()
 
+    # Сохраняем пользователя
+    gender = detect_gender(first_name)
+    await save_user(user_id, first_name, username, gender)
+
+    # Загружаем список всех участников
+    all_users = await load_all_users()
+    users_list = "\n".join([
+        f"{u['first_name']} (@{u['username']})" if u['username'] else f"{u['first_name']}"
+        for u in all_users
+    ])
+
+    # ===== Проверка на ключевые слова =====
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.search(pattern, text, re.I):
             await update.message.reply_text(random.choice(reactions))
             return
 
+    # ===== Проверка условий =====
     is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка)\b', text, re.I))
     is_reply_to_bot = (
         update.message.reply_to_message and
@@ -254,6 +336,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not (is_mentioned or is_reply_to_bot):
         return
 
+    # Убираем имя из сообщения
     if is_mentioned:
         clean = re.sub(r'(?i)^(бесдим|бес|димочка)\s*[:;,.]?\s*', '', text).strip()
     else:
@@ -266,12 +349,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(clean) > MAX_MESSAGE_LENGTH:
         clean = clean[:MAX_MESSAGE_LENGTH] + "…"
 
+    # Загружаем данные пользователя
+    user_info = await load_user(user_id)
+    user_context = ""
+    if user_info:
+        user_context = f"Сейчас тебе пишет {user_info['first_name']}"
+        if user_info['username']:
+            user_context += f" (@{user_info['username']})"
+        if user_info['gender'] == 'female':
+            user_context += ". Это женщина, обращайся «она»."
+        elif user_info['gender'] == 'male':
+            user_context += ". Это мужчина, обращайся «он»."
+
     facts = await load_facts(chat_id)
     facts_prompt = ""
     if facts:
         facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
-    system_prompt = SYSTEM_PROMPT + facts_prompt
+    system_prompt = (
+        SYSTEM_PROMPT
+        + "\n\nИзвестные участники группы:\n" + users_list
+        + "\n\n" + user_context
+        + "\n" + facts_prompt
+    )
+
     history = await load_history(chat_id, 100)
     history.append({"role": "user", "content": clean})
 
