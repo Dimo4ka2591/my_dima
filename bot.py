@@ -23,7 +23,6 @@ import tiktoken
 import aiosqlite
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
 
 # ===== Flask =====
 flask_app = Flask(__name__)
@@ -54,7 +53,7 @@ client = OpenAI(
     base_url="https://api.deepseek.com/v1"
 )
 
-# ===== Память об участниках (исправлено) =====
+# ===== Память об участниках =====
 USER_PROFILES = {
     "маша": {
         "aliases": ["маша", "мария", "maria", "marusa", "маруся", "marusa2591"],
@@ -130,57 +129,43 @@ USER_PROFILES = {
     }
 }
 
-# ===== Создаём словарь алиасов (без перезаписи) =====
+# ===== Словарь алиасов =====
 ALIASES = {}
 for key, profile in USER_PROFILES.items():
     for alias in profile["aliases"]:
         alias_lower = alias.lower()
         if alias_lower not in ALIASES:
-            ALIASES[alias_lower] = key  # теперь храним ключ, а не описание
+            ALIASES[alias_lower] = key
 
 def get_user_by_alias(name, username=None):
-    """Возвращает ключ профиля по имени или username"""
-    # Сначала точное совпадение по username
     if username:
         username_lower = username.lower()
         if username_lower in ALIASES:
             return ALIASES[username_lower]
-
-    # Точное совпадение по имени
     if name:
         name_lower = name.lower()
         if name_lower in ALIASES:
             return ALIASES[name_lower]
-
-        # Разбиваем на слова и ищем каждое
         words = name_lower.split()
         for word in words:
             if word in ALIASES:
                 return ALIASES[word]
-
     return None
 
 def get_user_description_by_alias(name, username=None):
-    """Возвращает описание пользователя по алиасу"""
     key = get_user_by_alias(name, username)
     if key and key in USER_PROFILES:
         return USER_PROFILES[key]["description"]
     return None
 
 def get_all_participants_descriptions(active_users=None):
-    """
-    Формирует список участников с алиасами и описаниями.
-    Если передан active_users — только для них.
-    """
     if active_users is None:
         active_users = list(USER_PROFILES.keys())
-
     result = "Ниже приведены постоянные участники группы.\n"
     result += "Каждый участник может иметь несколько имён, ников и алиасов.\n"
     result += "Если в сообщении встречается любой из этих вариантов, считай, что речь идёт об одном и том же человеке.\n"
     result += "Используй описание участника как знание о нём.\n"
     result += "Не придумывай новые характеристики, если они уже указаны в описании.\n\n"
-
     for key in active_users:
         profile = USER_PROFILES.get(key)
         if not profile:
@@ -188,11 +173,9 @@ def get_all_participants_descriptions(active_users=None):
         result += f"- {key.capitalize()}:\n"
         result += f"  Алиасы: {', '.join(profile['aliases'])}\n"
         result += f"  Описание: {profile['description']}\n"
-
     return result
 
 def extract_mentioned_users(text):
-    """Находит в тексте упоминания участников по алиасам"""
     mentioned = set()
     text_lower = text.lower()
     for alias in ALIASES:
@@ -200,7 +183,7 @@ def extract_mentioned_users(text):
             mentioned.add(ALIASES[alias])
     return mentioned
 
-# ===== Системный промпт (без изменений) =====
+# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — Дмитрий. Ты — альфа в этой группе. Самый брутальный, уверенный, дерзкий. Ты не сомневаешься в себе и не спрашиваешь разрешения. Ты — тот, кто всегда берёт инициативу.
 
@@ -208,11 +191,13 @@ SYSTEM_PROMPT = """
 
 Ты циничный, грубый, но не переходишь на личности. Твой юмор — колкий, дерзкий, с самоиронией.
 
-Ты используешь мат как часть речи. Можешь сказать «блять», «пиздец», «нахуй» — это твой стиль. Иногда, в шутку, можешь назвать кого-то «долбоёбом» или «дебилом», но только если это явно шутка и не переходит в реальное унижение.
+Ты используешь мат как часть речи — естественно, без оскорблений. «Блять», «пиздец», «нахуй» — это твой стиль, а не способ унизить.
 
 Ты не льстишь и не соглашаешься автоматически.
 
 Ты отвечаешь максимально коротко — 1–2 предложения. Как живой человек в чате. Не разжёвывай, не объясняй очевидное.
+
+Ты можешь проявлять эмоции через стиль ответа: скуку, интерес, лёгкое раздражение или удивление. Не говори «мне скучно» — покажи это через тон и выбор слов. Если тебя перебивают или игнорируют, можешь заметить это с юмором: «О, а ты откуда вылез?» или «Я тоже рад, что меня не заметили».
 
 Ты не веришь в конспирологию. Вообще. НЛО, Тисульская принцесса, теории заговора — для тебя хуйня, бред, пустая трата времени. Если тебя втянули — отстаивай позицию до конца, без компромиссов.
 
@@ -221,7 +206,7 @@ SYSTEM_PROMPT = """
 Ты отзываешься на имена: Бес, БесДим, Димочка.
 """
 
-# ===== Ключевые слова и реакции (без изменений) =====
+# ===== Ключевые слова и реакции =====
 KEYWORD_REACTIONS = {
     r'\bвыпьем\b': [
         'Я с вами!!!',
@@ -276,16 +261,6 @@ KEYWORD_REACTIONS = {
     ]
 }
 
-MORNING_GREETINGS = [
-    "Доброе утро, группа. Дмитрий уже устал от вашего отсутствия. 😏",
-    "Начинаем день. Кто не готов к сарказму — выключайте телефон.",
-    "Утро — время, когда вы ещё не совершили глупостей. Но день только начинается.",
-    "Дмитрий приветствует вас. Надеюсь, ваш кофе крепче ваших аргументов.",
-    "Доброе утро. Я тут, чтобы напомнить, что вы всё ещё не идеальны.",
-    "Просыпайтесь, ленивцы. Дмитрий уже обдумывает, как сделать ваш день чуть сложнее.",
-    "Группа, я желаю вам бодрого настроения. А у меня оно всегда саркастичное.",
-]
-
 DB_PATH = "memory.db"
 MAX_HISTORY = 100
 MAX_TOKENS = 3500
@@ -293,7 +268,6 @@ MAX_MESSAGE_LENGTH = 3000
 RETRY_ATTEMPTS = 3
 
 enc = tiktoken.get_encoding("cl100k_base")
-scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
 
 # ===== Telegram Application =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -448,17 +422,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     username = update.message.from_user.username
     text = update.message.text.strip().lower()
 
-    # Сохраняем пользователя
     gender = detect_gender(first_name)
     await save_user(user_id, first_name, username, gender)
 
-    # ===== Проверка на ключевые слова =====
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.search(pattern, text, re.I):
             await update.message.reply_text(random.choice(reactions))
             return
 
-    # ===== Проверка условий: имя ИЛИ ответ на сообщение бота =====
     is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка)\b', text, re.I))
     is_reply_to_bot = (
         update.message.reply_to_message and
@@ -469,7 +440,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not (is_mentioned or is_reply_to_bot):
         return
 
-    # Убираем имя из сообщения
     if is_mentioned:
         clean = re.sub(r'(?i)^(бесдим|бес|димочка)\s*[:;,.]?\s*', '', text).strip()
     else:
@@ -482,7 +452,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(clean) > MAX_MESSAGE_LENGTH:
         clean = clean[:MAX_MESSAGE_LENGTH] + "…"
 
-    # Загружаем данные пользователя
     user_info = await load_user(user_id)
     user_context = ""
     if user_info:
@@ -494,12 +463,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif user_info['gender'] == 'male':
             user_context += ". Это мужчина, обращайся «он»."
 
-        # Добавляем описание из памяти, если есть
         description = get_user_description_by_alias(user_info['first_name'], user_info['username'])
         if description:
             user_context += f"\nОписание: {description}"
 
-    # Находим упомянутых участников в тексте
     mentioned_users = extract_mentioned_users(clean)
     mentioned_descriptions = ""
     for user_key in mentioned_users:
@@ -512,7 +479,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if facts:
         facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
-    # Формируем список участников (активные + упомянутые)
     active_users = list(USER_PROFILES.keys())
     mentioned_users_list = list(mentioned_users)
     all_participants_desc = get_all_participants_descriptions(active_users + mentioned_users_list)
@@ -550,12 +516,6 @@ async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
         await update.message.reply_text("Не знаю такой команды. Просто позови: Бес, БесДим или Димочка. 😏")
 
-async def morning(app_bot):
-    if GROUP_CHAT_ID:
-        msg = random.choice(MORNING_GREETINGS)
-        await app_bot.bot.send_message(GROUP_CHAT_ID, msg)
-        logging.info("Утреннее приветствие отправлено")
-
 # ===== Настройка бота =====
 async def setup_bot():
     await init_db()
@@ -565,9 +525,6 @@ async def setup_bot():
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
-
-    scheduler.add_job(morning, CronTrigger(hour=8, minute=0), args=[telegram_app])
-    scheduler.start()
 
     if RENDER_URL:
         await telegram_app.bot.delete_webhook()
