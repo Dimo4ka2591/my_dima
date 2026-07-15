@@ -452,47 +452,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(clean) > MAX_MESSAGE_LENGTH:
         clean = clean[:MAX_MESSAGE_LENGTH] + "…"
 
+    # ===== Загружаем данные автора =====
     user_info = await load_user(user_id)
-    user_context = ""
-    if user_info:
-        user_context = f"Сейчас тебе пишет {user_info['first_name']}"
-        if user_info['username']:
-            user_context += f" (@{user_info['username']})"
-        if user_info['gender'] == 'female':
-            user_context += ". Это женщина, обращайся «она»."
-        elif user_info['gender'] == 'male':
-            user_context += ". Это мужчина, обращайся «он»."
+    author_name = user_info['first_name'] if user_info else first_name
+    author_username = user_info['username'] if user_info else username
+    author_gender = user_info['gender'] if user_info else None
 
-        description = get_user_description_by_alias(user_info['first_name'], user_info['username'])
-        if description:
-            user_context += f"\nОписание: {description}"
-
-    mentioned_users = extract_mentioned_users(clean)
-    mentioned_descriptions = ""
-    for user_key in mentioned_users:
-        if user_key in USER_PROFILES:
-            profile = USER_PROFILES[user_key]
-            mentioned_descriptions += f"\n{user_key.capitalize()}: {profile['description']}"
-
-    facts = await load_facts(chat_id)
-    facts_prompt = ""
-    if facts:
-        facts_prompt = "\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
-
-    active_users = list(USER_PROFILES.keys())
-    mentioned_users_list = list(mentioned_users)
-    all_participants_desc = get_all_participants_descriptions(active_users + mentioned_users_list)
-
+    # ===== Формируем системный промпт =====
     system_prompt = (
         SYSTEM_PROMPT
-        + "\n\n" + all_participants_desc
-        + "\n\n" + user_context
-        + "\n" + mentioned_descriptions
-        + "\n" + facts_prompt
+        + f"\n\nВАЖНО: Автор последнего сообщения — {author_name}"
+        + (f" (@{author_username})" if author_username else "")
+        + ".\nИменно этому человеку адресуй ответ."
     )
 
+    if author_gender == "female":
+        system_prompt += "\nАвтор сообщения — женщина."
+    elif author_gender == "male":
+        system_prompt += "\nАвтор сообщения — мужчина."
+
+    system_prompt += "\n\n" + get_all_participants_descriptions()
+
+    description = get_user_description_by_alias(author_name, author_username)
+    if description:
+        system_prompt += f"\n\nОписание автора: {description}"
+
+    mentioned_users = extract_mentioned_users(clean)
+    if mentioned_users:
+        system_prompt += "\n\nВ сообщении упомянуты:"
+        for user_key in mentioned_users:
+            profile = USER_PROFILES.get(user_key)
+            if profile:
+                system_prompt += f"\n- {user_key.capitalize()}: {profile['description']}"
+
+    facts = await load_facts(chat_id)
+    if facts:
+        system_prompt += "\n\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
+
+    # ===== Формируем историю с авторами =====
     history = await load_history(chat_id, 100)
-    history.append({"role": "user", "content": clean})
+    history.append({
+        "role": "user",
+        "content": f"{author_name}" + (f" (@{author_username})" if author_username else "") + f": {clean}"
+    })
 
     messages = [{"role": "system", "content": system_prompt}] + history
 
@@ -501,7 +503,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = await ask_ai(messages)
 
-    await save_history(chat_id, "user", clean)
+    # ===== Сохраняем историю с автором =====
+    await save_history(chat_id, "user", f"{author_name}" + (f" (@{author_username})" if author_username else "") + f": {clean}")
     await save_history(chat_id, "assistant", reply)
 
     new_facts = extract_facts(clean)
