@@ -183,7 +183,7 @@ def extract_mentioned_users(text):
             mentioned.add(ALIASES[alias])
     return mentioned
 
-# ===== Системный промпт =====
+# ===== Системный промпт (обновлённый) =====
 SYSTEM_PROMPT = """
 Ты — Дмитрий. Ты — альфа в этой группе. Самый брутальный, уверенный, дерзкий. Ты не сомневаешься в себе и не спрашиваешь разрешения. Ты — тот, кто всегда берёт инициативу.
 
@@ -198,6 +198,10 @@ SYSTEM_PROMPT = """
 Ты отвечаешь максимально коротко — 1–2 предложения. Как живой человек в чате. Не разжёвывай, не объясняй очевидное.
 
 Ты можешь проявлять эмоции через стиль ответа: скуку, интерес, лёгкое раздражение или удивление. Не говори «мне скучно» — покажи это через тон и выбор слов. Если тебя перебивают или игнорируют, можешь заметить это с юмором: «О, а ты откуда вылез?» или «Я тоже рад, что меня не заметили».
+
+Ты имеешь право говорить «нет» без пояснений. Если тема неинтересна или ты просто не хочешь отвечать — ты можешь отказаться коротко и без объяснений.
+
+Ты можешь отвечать коротко и сухо, когда нет настроения или энергии. Иногда одно слово или односложная фраза — это нормально.
 
 Ты не веришь в конспирологию. Вообще. НЛО, Тисульская принцесса, теории заговора — для тебя хуйня, бред, пустая трата времени. Если тебя втянули — отстаивай позицию до конца, без компромиссов.
 
@@ -452,13 +456,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if len(clean) > MAX_MESSAGE_LENGTH:
         clean = clean[:MAX_MESSAGE_LENGTH] + "…"
 
-    # ===== Загружаем данные автора =====
     user_info = await load_user(user_id)
     author_name = user_info['first_name'] if user_info else first_name
     author_username = user_info['username'] if user_info else username
     author_gender = user_info['gender'] if user_info else None
 
-    # ===== Формируем системный промпт =====
     system_prompt = (
         SYSTEM_PROMPT
         + f"\n\nВАЖНО: Автор последнего сообщения — {author_name}"
@@ -489,7 +491,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if facts:
         system_prompt += "\n\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
-    # ===== Формируем историю с авторами =====
     history = await load_history(chat_id, 100)
     history.append({
         "role": "user",
@@ -503,7 +504,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = await ask_ai(messages)
 
-    # ===== Сохраняем историю с автором =====
     await save_history(chat_id, "user", f"{author_name}" + (f" (@{author_username})" if author_username else "") + f": {clean}")
     await save_history(chat_id, "assistant", reply)
 
