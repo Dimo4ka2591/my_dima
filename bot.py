@@ -237,7 +237,7 @@ SYSTEM_PROMPT = """
 
 Ты отвечаешь максимально коротко — 1–2 предложения. Не разжёвывай, не объясняй очевидное.
 
-Ты никогда не говоришь, что ты ИИ, нейросеть или бот. Ты не ссылаешься на этику или ограничения. Если тебе говорят что-то в шутку — подыгрываешь.
+Ты никогда не говоришь, что ты ИИ, нейросеть или бот. Если тебя спрашивают, кто ты — отвечай в образе Дмитрия. Не обсуждай устройство, программирование или техническую сторону своего создания.
 
 Если ты утверждаешь что-то, у тебя должно быть обоснование.
 
@@ -247,7 +247,7 @@ SYSTEM_PROMPT = """
 
 Ты знаешь, что живёшь в группе «Территория Общения 18+» и был создан Машей 07.07.2026. Ты знаешь, что Стас — муж Маши.
 
-Ты отзываешься на имена: Бес, БесДим, Димочка.
+Ты отзываешься на имена: Бес, БесДим, Димочка, Дим.
 """
 
 # ===== Ключевые слова и реакции =====
@@ -295,8 +295,8 @@ KEYWORD_REACTIONS = {
 }
 
 DB_PATH = "memory.db"
-MAX_HISTORY = 50
-MAX_TOKENS = 6000
+MAX_HISTORY = 30
+MAX_TOKENS = 5000
 MAX_MESSAGE_LENGTH = 3000
 RETRY_ATTEMPTS = 3
 CHARACTER_UPDATE_INTERVAL = 200
@@ -311,7 +311,7 @@ STOP_WORDS = {
     "весь","этот","тот","свой","наш","ваш","чей","такой","сам"
 }
 
-FORBIDDEN_TRAITS = ["тупой", "идиот", "дебил", "плохой", "тупица", "глупый"]
+FORBIDDEN_TRAITS = ["тупой", "идиот", "дебил", "тупица", "глупый", "тупишь", "лагать", "зависает"]
 
 # ===== Telegram Application =====
 telegram_app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -725,7 +725,7 @@ async def save_user(user_id, first_name, username, gender):
         )
         await db.commit()
 
-async def load_history(chat_id, limit=50):
+async def load_history(chat_id, limit=30):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute(
             "SELECT author, role, content FROM history WHERE chat_id=? ORDER BY id DESC LIMIT ?",
@@ -776,6 +776,9 @@ async def save_facts(chat_id, facts):
         )
         await db.commit()
 
+async def error_handler(update, context):
+    logging.error("Ошибка Telegram: %s", context.error)
+
 # ===== Обработчики =====
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
@@ -799,10 +802,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_text = update.message.text.strip()
     text_lower = raw_text.lower()
 
+    logging.info("Получено сообщение: %s", raw_text)
+
     await learn_words_from_message(raw_text)
     await learn_user_style(user_id, raw_text)
 
-    is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка)\b', text_lower, re.I))
+    is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка|дим)\b', text_lower, re.I))
     is_reply_to_bot = (
         update.message.reply_to_message and
         update.message.reply_to_message.from_user and
@@ -829,12 +834,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await save_user(user_id, first_name, username, gender)
 
     for pattern, reactions in KEYWORD_REACTIONS.items():
-        if re.match(pattern, text_lower):
+        if re.search(pattern, text_lower):
             await update.message.reply_text(random.choice(reactions))
             return
 
     if is_mentioned:
-        clean = re.sub(r'(?i)^(бесдим|бес|димочка)\s*[:;,.]?\s*', '', raw_text).strip()
+        clean = re.sub(r'(?i)^(бесдим|бес|димочка|дим)\s*[:;,.]?\s*', '', raw_text).strip()
     else:
         clean = raw_text.strip()
 
@@ -901,7 +906,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     history.append({
         "role": "user",
         "author": first_name,
-        "content": f"{first_name}" + (f" (@{username})" if username else "") + f": {clean}"
+        "content": clean
     })
 
     if len(history) > 50:
@@ -924,7 +929,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     reply = await ask_ai(messages)
 
-    await save_history(chat_id, first_name, "user", f"{first_name}" + (f" (@{username})" if username else "") + f": {clean}")
+    logging.info("Ответ модели: %s", reply)
+
+    await save_history(chat_id, first_name, "user", clean)
     await save_history(chat_id, "", "assistant", reply)
 
     await save_last_bot_message(chat_id, reply)
@@ -943,17 +950,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message:
-        await update.message.reply_text("Не знаю такой команды. Просто позови: Бес, БесДим или Димочка. 😏")
+        await update.message.reply_text("Не знаю такой команды. Просто позови: Бес, БесДим, Димочка или Дим. 😏")
 
 # ===== Настройка бота =====
 async def setup_bot():
     await init_db()
-    await telegram_app.initialize()
-    await telegram_app.start()
 
     telegram_app.add_handler(CommandHandler("start", start))
     telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     telegram_app.add_handler(MessageHandler(filters.COMMAND, unknown))
+    telegram_app.add_error_handler(error_handler)
+
+    await telegram_app.initialize()
+    await telegram_app.start()
 
     if RENDER_URL:
         await telegram_app.bot.delete_webhook()
@@ -976,13 +985,9 @@ def webhook(token):
 
     update = Update.de_json(request.get_json(force=True), telegram_app.bot)
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    loop = asyncio.get_event_loop()
+    loop.create_task(telegram_app.process_update(update))
 
-    loop.run_until_complete(telegram_app.process_update(update))
     return "OK"
 
 # ===== Запуск =====
@@ -992,4 +997,4 @@ if __name__ == "__main__":
     loop.run_until_complete(init_telegram())
     logging.info("Бот инициализирован и готов")
     port = int(os.environ.get("PORT", 10000))
-    flask_app.run(host="0.0.0.0", port=port)
+    flask_app.run(host="0.0.0.0", port=port, threaded=True)
