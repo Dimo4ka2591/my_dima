@@ -799,11 +799,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     raw_text = update.message.text.strip()
     text_lower = raw_text.lower()
 
-    # Обучение всегда
     await learn_words_from_message(raw_text)
     await learn_user_style(user_id, raw_text)
 
-    # Проверка — обращались ли к боту
     is_mentioned = bool(re.search(r'\b(бесдим|бес|димочка)\b', text_lower, re.I))
     is_reply_to_bot = (
         update.message.reply_to_message and
@@ -811,7 +809,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         update.message.reply_to_message.from_user.id == bot_id
     )
 
-    # Оценка реакции на ответ бота
     if update.message.reply_to_message:
         replied_msg = update.message.reply_to_message
         if replied_msg.from_user and replied_msg.from_user.id == bot_id:
@@ -819,7 +816,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if last_bot_msg:
                 await rate_answer(last_bot_msg, raw_text, f"{first_name} ответил на сообщение бота")
 
-    # Если бота не звали — только обучение, без ответа
     if not (is_mentioned or is_reply_to_bot):
         return
 
@@ -832,7 +828,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             gender = 'male'
         await save_user(user_id, first_name, username, gender)
 
-    # Триггеры только в начале сообщения
     for pattern, reactions in KEYWORD_REACTIONS.items():
         if re.match(pattern, text_lower):
             await update.message.reply_text(random.choice(reactions))
@@ -942,7 +937,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(reply[:4000])
 
-    # Обновление характера в фоне
     msg_count = await get_message_count(chat_id)
     if msg_count % CHARACTER_UPDATE_INTERVAL == 0 and msg_count > 0:
         asyncio.create_task(update_character_from_chat(chat_id))
@@ -966,6 +960,9 @@ async def setup_bot():
         webhook_url = f"{RENDER_URL}/webhook/{BOT_TOKEN}"
         await telegram_app.bot.set_webhook(webhook_url)
         logging.info("Webhook установлен: %s", webhook_url)
+
+async def init_telegram():
+    await setup_bot()
 
 # ===== Flask маршруты =====
 @flask_app.route("/")
@@ -992,7 +989,7 @@ def webhook(token):
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    loop.run_until_complete(setup_bot())
-    logging.info("Бот инициализирован")
+    loop.run_until_complete(init_telegram())
+    logging.info("Бот инициализирован и готов")
     port = int(os.environ.get("PORT", 10000))
     flask_app.run(host="0.0.0.0", port=port)
