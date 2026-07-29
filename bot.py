@@ -979,14 +979,16 @@ def webhook(token):
     if token != BOT_TOKEN:
         return "Forbidden", 403
 
-    try:
-        update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-        loop = asyncio.get_event_loop()
-        loop.create_task(telegram_app.process_update(update))
-        return "OK"
-    except Exception as e:
-        logging.error("Ошибка webhook: %s", e)
-        return "Error", 500
+    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+    loop.run_until_complete(telegram_app.process_update(update))
+    return "OK"
+
+# ===== Инициализация при старте =====
+@flask_app.before_request
+def before_request():
+    if not getattr(flask_app, "initialized", False):
+        flask_app.initialized = True
+        loop.run_until_complete(setup_bot())
 
 # ===== Запуск =====
 if __name__ == "__main__":
