@@ -983,12 +983,14 @@ def webhook(token):
     if token != BOT_TOKEN:
         return "Forbidden", 403
 
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-
-    loop = asyncio.get_event_loop()
-    loop.create_task(telegram_app.process_update(update))
-
-    return "OK"
+    try:
+        update = Update.de_json(request.get_json(force=True), telegram_app.bot)
+        loop = asyncio.get_event_loop()
+        loop.create_task(telegram_app.process_update(update))
+        return "OK"
+    except Exception as e:
+        logging.error("Ошибка webhook: %s", e)
+        return "Error", 500
 
 # ===== Запуск =====
 if __name__ == "__main__":
