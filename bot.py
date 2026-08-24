@@ -1,27 +1,4 @@
-", "0"))
-RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
-if not BOT_TOKEN:
-    raise RuntimeError("Не найден BOT_TOKEN")
-eek =====
-client = OpenAI(
-    api_key=DEEPSEEK_API_KEY,
-    base_url="https://api.deepseek.com/v1"
-)
-
-# ===== Память об участниках =====
-USER_PROFILES = {
-    "маша": {
-        "aliases": ["маша", "мария", "maria", "marusa", "маруся", "marusa2591"],
-        "username": "marusa2591",
-        "description": "Создатель группы, хозяйка. Уставшая, добрая, с огоньком. Любит порядок, но ленится. Муж Стас, сын Денис, коты Вася и Сеня."
-    },
-    "стас_муж": {
-        "aliases": ["стас", "stas", "стасик"],
-        "username": "stas",
-        "description": "Муж Маши. Спокойный, с юмором. Сборщик окон. Любит подкалывать."
-    },
-    "виталя": {
         "aliases": ["виталя", "виталик", "vitalya", "vitalik"],
         "username": "vitalya",
         "description": "Конспиролог-любитель. Беззлобный, чатовый клоун. Верит в тисульскую принцессу, НЛО, йети."
