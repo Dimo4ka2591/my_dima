@@ -1,23 +1,4 @@
-
-)
-
-from openai import OpenAI
-import tiktoken
-import aiosqlite
-
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-# ===== Flask =====
-flask_app = Flask(__name__)
-
-# ===== Глобальный event loop =====
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-
-# ===== Конфиг =====
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0"))
+", "0"))
 RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 if not BOT_TOKEN:
