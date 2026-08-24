@@ -1,21 +1,4 @@
-import os
-import logging
-import json
-import re
-import asyncio
-import time
-import random
-from datetime import datetime
 
-from flask import Flask, request
-
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    filters,
-    ContextTypes
 )
 
 from openai import OpenAI
@@ -39,15 +22,7 @@ RENDER_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 if not BOT_TOKEN:
     raise RuntimeError("Не найден BOT_TOKEN")
-if not DEEPSEEK_API_KEY:
-    raise RuntimeError("Не найден DEEPSEEK_API_KEY")
-
-logging.basicConfig(
-    format="%(asctime)s | %(levelname)s | %(message)s",
-    level=logging.INFO,
-)
-
-# ===== Клиент DeepSeek =====
+eek =====
 client = OpenAI(
     api_key=DEEPSEEK_API_KEY,
     base_url="https://api.deepseek.com/v1"
