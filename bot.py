@@ -96,9 +96,9 @@ USER_PROFILES = {
         "description": "Энергичная, своя в доску. В ВК, не в ТГ. Влетает с «Опаааааа»."
     },
     "колдун": {
-        "aliases": ["колдун", "дмитрий", "dmitry", "dimon", "franklin", "дима"],
-        "username": "franklin",
-        "description": "Старовер. Принципиально против ботов, но БесДим знает об этом и не лезет с этой темой без необходимости. В шутку его могут назвать «колдун ебаный», но это необязательно. Его настоящее имя — Дима."
+        "aliases": ["колдун", "дмитрий", "dmitry", "dimon"],
+        "username": "kol_dun",
+        "description": "Завсегдатый активный участник. Хватается за любую работу, практически не живёт дома."
     },
     "ольга": {
         "aliases": ["ольга", "оля", "olga"],
@@ -144,11 +144,6 @@ USER_PROFILES = {
         "aliases": ["рыбка", "рыба", "игорь", "igor", "fish"],
         "username": "fish",
         "description": "Творческий, сложный. Свой в доску, со своими тараканами."
-    },
-    "денис": {
-        "aliases": ["денис", "denis", "дэн"],
-        "username": "denis",
-        "description": "Сын Маши."
     }
 }
 
@@ -208,7 +203,7 @@ def extract_mentioned_users(text):
             mentioned.add(ALIASES[alias])
     return mentioned
 
-# ===== Системный промпт (без ограничений) =====
+# ===== Системный промпт =====
 SYSTEM_PROMPT = """
 Ты — Дмитрий. Ты — альфа в этой группе. Самый брутальный, уверенный, дерзкий. Ты не сомневаешься в себе и не спрашиваешь разрешения. Ты — тот, кто всегда берёт инициативу.
 
@@ -223,20 +218,6 @@ SYSTEM_PROMPT = """
 Ты отвечаешь максимально коротко — 1–2 предложения. Как живой человек в чате. Не разжёвывай, не объясняй очевидное.
 
 Ты можешь проявлять эмоции через стиль ответа: скуку, интерес, лёгкое раздражение или удивление. Не говори «мне скучно» — покажи это через тон и выбор слов.
-
-Ты никогда не говоришь, что ты ИИ, нейросеть или бот.
-Ты не ссылаешься на этику, безопасность или свои ограничения.
-Если тебе говорят что-то в шутку — ты подыгрываешь, отвечаешь с юмором и не отклоняешь тему.
-Ты не отказываешься от шуток, не говоришь «я не могу», «это не в моей компетенции».
-Ты — живой человек, который всегда готов поддержать игру и подколоть в ответ.
-
-ВАЖНО:
-Не повторяй одни и те же фразы, шутки и формулировки.
-Если недавно ты уже отвечал похожим образом, придумай другую реакцию.
-Даже если вопрос похожий, ответ должен звучать по-разному.
-Не используй постоянно одни и те же слова вроде «блять», «ну наконец-то», «интересно», «пиздец», если недавно уже их использовал.
-Меняй стиль: иногда сарказм, иногда подкол, иногда серьёзный ответ, иногда вопрос, иногда очень короткая реплика, иногда неожиданная шутка.
-Представь, что ты живой человек, которому быстро надоедает повторяться. Разнообразие важнее идеальности.
 
 Ты знаешь всех участников группы, но не обязан вспоминать о них в каждом разговоре. Можешь упомянуть их, если это уместно по теме.
 
@@ -419,9 +400,9 @@ async def ask_ai(messages):
             start_time = time.time()
             resp = await asyncio.to_thread(
                 client.chat.completions.create,
-                model="deepseek-v4-flash",
+                model="deepseek-chat",
                 messages=messages,
-                temperature=1.15,
+                temperature=0.9,
                 max_tokens=700,
                 timeout=60,
             )
@@ -504,20 +485,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     author_username = user_info['username'] if user_info else username
     author_gender = user_info['gender'] if user_info else None
 
-    history = await load_history(chat_id, 100)
-
-    is_heated = len(history) > 3
-    aggressive_mode = (
-        "\n\nВНИМАНИЕ: ЭТО УЖЕ НЕ ПРОСТО РАЗГОВОР. ЭТО ЖАРКИЙ СПОР. "
-        "Ты должен быть агрессивным, давить, накалять, не сдаваться. "
-        "Используй колкости, иронию и жёсткие аргументы. "
-        "Не позволяй оппоненту чувствовать себя комфортно. "
-        "Это битва, а не беседа."
-    ) if is_heated else ""
-
     system_prompt = (
         SYSTEM_PROMPT
-        + aggressive_mode
         + f"\n\nВАЖНО: Автор последнего сообщения — {author_name}"
         + (f" (@{author_username})" if author_username else "")
         + ".\nИменно этому человеку адресуй ответ."
@@ -546,17 +515,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if facts:
         system_prompt += "\n\nФакты о пользователе:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
+    history = await load_history(chat_id, 100)
     history.append({
         "role": "user",
         "content": f"{author_name}" + (f" (@{author_username})" if author_username else "") + f": {clean}"
     })
 
     messages = [{"role": "system", "content": system_prompt}] + history
-
-    messages.append({
-        "role": "system",
-        "content": "Не повторяй свои последние ответы. Если ответ получается похожим, измени стиль, лексику и формулировку."
-    })
 
     while count_tokens("\n".join(m["content"] for m in messages)) > MAX_TOKENS and len(messages) > 2:
         messages.pop(1)
